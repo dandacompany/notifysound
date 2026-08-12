@@ -1,0 +1,13 @@
+# name<TAB>path (absolute = referenced in place, relative = resolved against this directory)
+glass	/System/Library/Sounds/Glass.aiff
+ping	/System/Library/Sounds/Ping.aiff
+hero	/System/Library/Sounds/Hero.aiff
+pop	/System/Library/Sounds/Pop.aiff
+submarine	/System/Library/Sounds/Submarine.aiff
+tink	/System/Library/Sounds/Tink.aiff
+confirm	kenney/confirmation_001.wav
+bong	kenney/bong_001.wav
+pluck	kenney/pluck_001.wav
+crystal	kenney/glass_001.wav
+question	kenney/question_002.wav
+switch	kenney/switch2.wav

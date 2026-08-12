@@ -1,0 +1,4 @@
+.superpowers/
+*.notifysound-bak-*
+tests/fake_player.sh
+.DS_Store
