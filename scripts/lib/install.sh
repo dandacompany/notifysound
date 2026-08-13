@@ -160,6 +160,32 @@ ns_claude_signed_count() {
     "$settings" 2>/dev/null
 }
 
+# --- pre-flight: what would this refuse, before anything is written? ------
+#
+# Read-only. Returns the status the matching install/uninstall would return for
+# the checks it makes BEFORE it mutates anything, so a caller working across two
+# hosts can find out that one of them will refuse without having already changed
+# the other. rc 0 means "no known reason to refuse" — not a guarantee that the
+# write will succeed, which nothing read-only can promise.
+ns_claude_check() {
+  local settings
+  settings="$(ns_real_file "$1")"
+  [ -f "$settings" ] || return 1
+  ns_path_representable "$NS_PLAY_PATH" || return 2
+  jq -e . "$settings" >/dev/null 2>&1 || return 2
+  return 0
+}
+
+ns_codex_check() {
+  local notify
+  notify="$(ns_real_file "$1")"
+  [ -f "$notify" ] || return 1
+  ns_path_representable "$NS_CODEX_HOOK" || return 2
+  [ "$(ns_codex_drift_count "$notify")" = "0" ] || return 2
+  [ "$(ns_codex_legacy_present "$notify")" = "0" ] || return 3
+  return 0
+}
+
 ns_install_claude() {
   local settings tmp cmd
   settings="$(ns_real_file "$1")"

@@ -193,6 +193,12 @@ Two consequences worth knowing:
   parsed, rewritten, or deleted. A `Stop` hook you wrote yourself survives both,
   byte for byte.
 
+`install` and `uninstall` check every host before changing any of them. If one
+would be refused, none are touched and nothing is written — not even a backup.
+The limit worth knowing: that covers refusals it can see in advance, not a disk
+error partway through the writes. If one does happen, the output says which host
+was changed rather than claiming the operation was atomic.
+
 Every edit to `settings.json` or `notify.sh` writes a timestamped backup
 alongside the original (`<file>.notifysound-bak-<timestamp>-XXXXXX`).
 

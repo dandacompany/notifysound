@@ -171,15 +171,19 @@ check_prereqs() {
 link_force() {
   local target="$1" link="$2" dir tmp
   dir="$(dirname "$link")"
-  mkdir -p "$dir"
+  # Raw command statuses used to escape all the way out: an unwritable
+  # ~/.local made mkdir return 1, which travelled to the process exit status
+  # and claimed "user error" for what is plainly an environment failure. Every
+  # such call is mapped onto the documented contract.
+  mkdir -p "$dir" || fail "cannot create $dir (permission denied?)"
   if [ -e "$link" ] && [ ! -L "$link" ]; then
     say "  found a real directory or file at $link — leaving it alone"
     say "  (probably a 'skills add' copy; the CLI and hooks will use $NS_PREFIX)"
     return 0
   fi
   tmp="$(mktemp -u "$dir/.notifysound-link.XXXXXX")"
-  ln -s "$target" "$tmp"
-  mv -f "$tmp" "$link"
+  ln -s "$target" "$tmp" || fail "cannot create a link in $dir"
+  mv -f "$tmp" "$link" || { rm -f "$tmp"; fail "cannot place the link at $link"; }
 }
 
 # Download and unpack a release, printing the extracted root directory.
@@ -206,7 +210,7 @@ deploy() {
   for item in SKILL.md VERSION scripts sounds; do
     [ -e "$src/$item" ] || fail "source tree is missing $item (is $src a notifysound checkout?)"
   done
-  mkdir -p "$NS_PREFIX"
+  mkdir -p "$NS_PREFIX" || fail "cannot create $NS_PREFIX (permission denied?)"
   # The marker goes in first, so an interrupted first install still leaves a
   # tree the next run recognises as ours instead of refusing forever.
   {
@@ -216,12 +220,13 @@ deploy() {
     # against the resolved path on the next run. A marker copied elsewhere, or
     # created blind, will not match.
     printf 'prefix=%s\n' "$(cd "$NS_PREFIX" && pwd -P)"
-  } > "$NS_PREFIX/$NS_MARKER"
+  } > "$NS_PREFIX/$NS_MARKER" || fail "cannot write the install marker in $NS_PREFIX"
   for item in SKILL.md VERSION scripts sounds; do
     rm -rf "${NS_PREFIX:?}/$item"
-    cp -R "$src/$item" "$NS_PREFIX/$item"
+    cp -R "$src/$item" "$NS_PREFIX/$item" || fail "cannot copy $item into $NS_PREFIX"
   done
-  chmod +x "$NS_PREFIX/scripts/notifysound.sh" "$NS_PREFIX/scripts/notifysound-play.sh"
+  chmod +x "$NS_PREFIX/scripts/notifysound.sh" "$NS_PREFIX/scripts/notifysound-play.sh" \
+    || fail "cannot make the scripts executable in $NS_PREFIX"
 }
 
 do_links() {

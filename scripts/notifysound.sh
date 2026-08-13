@@ -391,6 +391,10 @@ cmd_install() {
     printf 'could not register built-in sounds\n' >&2
     failed=1
   fi
+  local pre_rc=0
+  ns_preflight_hosts || pre_rc=$?
+  [ "$pre_rc" -eq 0 ] || exit "$pre_rc"
+
   if [ -f "$NS_CLAUDE_SETTINGS" ]; then
     if ns_install_claude "$NS_CLAUDE_SETTINGS"; then
       printf 'Claude Code hook installed: %s\n' "$NS_CLAUDE_SETTINGS"
@@ -420,11 +424,46 @@ cmd_install() {
   [ "$need_migrate" -eq 0 ] || exit 3
 }
 
+# Run every host's read-only pre-flight BEFORE touching any of them, and refuse
+# as a whole if any would refuse.
+#
+# Without this, `uninstall` removed the Claude hook and only then discovered
+# that Codex needed migration — and the wrapper, seeing rc 3, printed "Nothing
+# was removed" over a settings.json it had just rewritten. Recoverable from the
+# backup, but a false statement about what happened is its own defect.
+#
+# A host whose file does not exist (rc 1) is not a refusal: plenty of machines
+# have Claude and no Codex. Only 2 and 3 stop the operation.
+#
+# What this does NOT promise: that the writes will then succeed. A disk error
+# halfway through still leaves one host changed and the other not. That is why
+# the caller reports what it actually did rather than claiming atomicity.
+ns_preflight_hosts() {
+  local rc worst=0 which=""
+  if [ -f "$NS_CLAUDE_SETTINGS" ]; then
+    rc=0; ns_claude_check "$NS_CLAUDE_SETTINGS" || rc=$?
+    case $rc in 2|3) worst=$rc; which="Claude Code ($NS_CLAUDE_SETTINGS)" ;; esac
+  fi
+  if [ "$worst" -eq 0 ] && [ -f "$NS_CODEX_NOTIFY" ]; then
+    rc=0; ns_codex_check "$NS_CODEX_NOTIFY" || rc=$?
+    case $rc in 2|3) worst=$rc; which="Codex CLI ($NS_CODEX_NOTIFY)" ;; esac
+  fi
+  [ "$worst" -eq 0 ] && return 0
+  printf 'Nothing was changed.\n' >&2
+  if [ "$worst" -eq 3 ]; then
+    report_needs_migrate "$which"
+  else
+    printf 'Cannot proceed: %s is not in a state this can safely edit.\n' "$which" >&2
+    printf "Run: notifysound status   (to see what it found)\n" >&2
+  fi
+  return "$worst"
+}
+
 # rc 3 from the codex functions means an installation from an older layout is
 # sitting somewhere in the file. We refuse rather than add a second hook beside
 # one we cannot see, and we do not rewrite their file uninvited.
 report_needs_migrate() {
-  printf 'Codex CLI hook not changed: %s\n' "$1" >&2
+  printf 'Not changed: %s\n' "$1" >&2
   printf 'It still holds a notifysound hook in the pre-2.2 layout.\n' >&2
   printf "Run: notifysound migrate   (then run install again)\n" >&2
   printf '(migrate is the only command that edits your script by position; it is\n' >&2
@@ -462,7 +501,10 @@ cmd_migrate() {
 }
 
 cmd_uninstall() {
-  local failed=0 need_migrate=0 codex_rc
+  local failed=0 need_migrate=0 codex_rc pre_rc=0
+  ns_preflight_hosts || pre_rc=$?
+  [ "$pre_rc" -eq 0 ] || exit "$pre_rc"
+
   if [ -f "$NS_CLAUDE_SETTINGS" ]; then
     if ns_uninstall_claude "$NS_CLAUDE_SETTINGS"; then
       printf 'Claude Code hook removed\n'
