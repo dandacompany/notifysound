@@ -213,6 +213,24 @@ notifysound install     # 그다음 평소대로 설치
 실행하고 싶지 않다면 `~/.codex/hooks/notify.sh`에서 notifysound 줄이나 블록을 직접
 지우고 `notifysound install`을 돌리면 된다.
 
+## 알려진 한계
+
+숨기지 않고 적어 둔다. 평범한 사용에서 데이터를 파괴하는 것은 없다.
+
+- **`migrate`는 옛 배치를 정확히 재현한 heredoc 텍스트를 지울 수 있다.** 셸
+  스크립트 안에서 명령과 데이터를 구별하려면 파싱이 필요하고, 그래서 이것은 백업을
+  먼저 쓰는 별도 opt-in 명령이다. 평범한 `install`·`uninstall`은 절대 하지 않는다.
+- **심링크 교체는 원자적이지 않다.** 새 링크를 옮기기 전에 옛 링크를 지우므로, 그
+  사이에 중단되면 링크가 없는 상태이거나 `.notifysound-link.XXXXXX` 임시 링크가 남을
+  수 있다. 설치기를 다시 돌리면 진짜 링크는 복구되지만 임시 링크는 치우지 않는다.
+- **빌트인 등록은 절대 경로를 담는다.** `~/.claude/notifysound/config.json`을 다른
+  머신으로 복사하면 옛 설치 경로를 가리킨다. 그 머신에서 새로 설치하는 것이 맞으므로,
+  파일을 옮기지 말고 거기서 `notifysound install`을 돌릴 것.
+- **락이 없다.** 설치기 둘을, 또는 설치기와 `notifysound use`를 동시에 돌리면 한쪽
+  갱신이 유실될 수 있다. 하나씩 돌릴 것.
+- **설정 검증은 JSON 문법 수준이지 스키마가 아니다.** 문법은 맞고 모양이 틀린 파일은
+  통과하며, 재생기는 이해할 수 없는 것을 만나면 "조용히 있는다".
+
 ## 크레딧
 
 번들 음원은 Kenney의 [Interface Sounds](https://kenney.nl/assets/interface-sounds)와

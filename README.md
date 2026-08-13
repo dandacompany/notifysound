@@ -223,6 +223,28 @@ notifysound install     # then install normally
 If you would rather not run it, delete the notifysound line or block from
 `~/.codex/hooks/notify.sh` by hand and run `notifysound install`.
 
+## Known limitations
+
+Documented rather than hidden, and none of them destroys data in ordinary use:
+
+- **`migrate` can remove heredoc text that reproduces an old layout exactly.**
+  Telling a command from data inside a shell script requires parsing it, which
+  is why this is a separate opt-in command that backs the file up first. The
+  ordinary `install` and `uninstall` never do it.
+- **Replacing a symlink is not atomic.** The old link is removed before the new
+  one is moved into place, so an interruption in between can leave the link
+  missing, or leave a `.notifysound-link.XXXXXX` temp behind. Re-running the
+  installer restores the real link; it does not sweep up temps.
+- **Built-in registrations store absolute paths.** Copying your
+  `~/.claude/notifysound/config.json` to another machine leaves them pointing at
+  the old install location. A fresh install on that machine is correct; run
+  `notifysound install` there rather than carrying the file over.
+- **No locking.** Two installers, or an installer and a `notifysound use`, run at
+  the same time can lose one of the updates. Run one at a time.
+- **Config validation is JSON syntax, not a schema.** A syntactically valid file
+  with the wrong shape is accepted, and the player treats anything it cannot
+  make sense of as "stay quiet".
+
 ## Credits
 
 Bundled sounds are from Kenney's [Interface Sounds](https://kenney.nl/assets/interface-sounds)

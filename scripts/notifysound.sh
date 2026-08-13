@@ -368,9 +368,19 @@ fi
 # the more severe fact is the one the caller must act on.
 cmd_install() {
   local failed=0 need_migrate=0 codex_rc
+  local picked pick_rc pre_rc=0
+
+  # The transaction boundary is here, before ANY state is written — not just
+  # before the host files. Putting it after registration meant a refused install
+  # had already rewritten config.json (0 -> 12 sounds, null -> glass) under a
+  # message saying nothing had changed. The principle was right and its scope
+  # was too narrow, which is the same mistake as gating the delete but doing it
+  # after running somebody else's script.
+  ns_preflight_hosts || pre_rc=$?
+  [ "$pre_rc" -eq 0 ] || exit "$pre_rc"
+
   # Registration runs before the hooks, so that a hook failure still leaves a
   # usable sound library behind.
-  local picked pick_rc
   if ns_register_builtins; then
     printf 'built-in sounds registered\n'
     # A fresh install would otherwise be registered, wired up, and completely
@@ -391,10 +401,6 @@ cmd_install() {
     printf 'could not register built-in sounds\n' >&2
     failed=1
   fi
-  local pre_rc=0
-  ns_preflight_hosts || pre_rc=$?
-  [ "$pre_rc" -eq 0 ] || exit "$pre_rc"
-
   if [ -f "$NS_CLAUDE_SETTINGS" ]; then
     if ns_install_claude "$NS_CLAUDE_SETTINGS"; then
       printf 'Claude Code hook installed: %s\n' "$NS_CLAUDE_SETTINGS"

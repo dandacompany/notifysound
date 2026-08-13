@@ -161,9 +161,14 @@ check_prereqs() {
   [ "$bad" -eq 0 ] || exit 2
 }
 
-# Replace a symlink atomically. `ln -sfn` has a trap: when the link already
-# exists and points at a directory, it can create the new link INSIDE that
-# directory. Creating under a temp name and mv-ing over avoids that entirely.
+# Replace a symlink. NOT atomically — the claim that used to be here stopped
+# being true when the old link had to be removed before the mv (see below), and
+# a comment asserting a property the code does not have is worse than no
+# comment. There is a brief window in which the link is absent.
+#
+# `ln -sfn` has a trap: when the link already exists and points at a directory,
+# it can create the new link INSIDE that directory. Building under a temp name
+# does not by itself avoid it, because `mv -f` follows such a link too.
 #
 # A path that exists but is NOT a symlink is left completely alone. This script
 # runs on other people's machines and must never delete a directory it did not
@@ -190,7 +195,9 @@ link_force() {
   # way to make mv land on the path rather than through it. The window between
   # the two is brief and a momentarily missing link is harmless; a silently
   # unrefreshed link is not.
-  [ -L "$link" ] && rm -f "$link"
+  if [ -L "$link" ]; then
+    rm -f "$link" || fail "cannot replace the existing link at $link"
+  fi
   mv -f "$tmp" "$link" || { rm -f "$tmp"; fail "cannot place the link at $link"; }
 }
 
