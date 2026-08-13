@@ -3,6 +3,7 @@
 **A sound when your agent finishes its turn — for Claude Code and Codex CLI, from one switch.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![skills.sh](https://img.shields.io/badge/skills.sh-notifysound-blue)](https://skills.sh/dandacompany/notifysound)
 
 한국어 문서: [README.ko.md](./README.ko.md)
 

@@ -3,6 +3,7 @@
 **에이전트가 턴을 끝내면 소리가 난다 — Claude Code와 Codex CLI를 스위치 하나로.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![skills.sh](https://img.shields.io/badge/skills.sh-notifysound-blue)](https://skills.sh/dandacompany/notifysound)
 
 English: [README.md](./README.md)
 
