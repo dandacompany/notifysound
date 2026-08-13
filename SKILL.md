@@ -23,21 +23,21 @@ registers the 12 built-in sounds.
 
 ## Command mapping
 
-| User request                                                      | Command                          |
-| ----------------------------------------------------------------- | -------------------------------- |
-| "mute the sound" / "알림음 꺼줘"                                  | `notifysound off`                |
-| "turn the sound on" / "알림음 켜줘"                               | `notifysound on`                 |
-| "silence codex only" / "코덱스만 조용히"                          | `notifysound off --host codex`   |
-| "mute claude only" / "클로드만 꺼줘"                              | `notifysound off --host claude`  |
-| "put codex back to default" / "코덱스 설정 원래대로"              | `notifysound reset --host codex` |
-| "what is the sound state" / "지금 알림음 상태 어때"               | `notifysound status`             |
-| "what sounds are registered" / "등록된 알림음 뭐 있어"            | `notifysound list`               |
-| "register this file as the sound" / "이 파일 알림음으로 등록해줘" | `notifysound add <name> <file>`  |
-| "switch to <name>" / "알림음 <이름>으로 바꿔줘"                   | `notifysound use <name>`         |
-| "let me hear it" / "알림음 들려줘"                                | `notifysound test`               |
-| "delete the <name> sound" / "알림음 <이름> 지워줘"                | `notifysound remove <name>`      |
-| "reinstall the hooks" / "알림음 훅 다시 설치해줘"                 | `notifysound install`            |
-| "remove notifysound" / "알림음 기능 제거해줘"                     | `notifysound uninstall`          |
+| User request                                                                      | Command                                          |
+| --------------------------------------------------------------------------------- | ------------------------------------------------ |
+| "mute the sound" / "알림음 꺼줘"                                                  | `notifysound off`                                |
+| "turn the sound on" / "알림음 켜줘"                                               | `notifysound on`                                 |
+| "silence codex only" / "코덱스만 조용히"                                          | `notifysound off --host codex`                   |
+| "mute claude only" / "클로드만 꺼줘"                                              | `notifysound off --host claude`                  |
+| "put codex back to default" / "코덱스 설정 원래대로"                              | `notifysound reset --host codex`                 |
+| "what is the sound state" / "지금 알림음 상태 어때"                               | `notifysound status`                             |
+| "what sounds are registered" / "등록된 알림음 뭐 있어"                            | `notifysound list`                               |
+| "register this file as the sound" / "이 파일 알림음으로 등록해줘"                 | `notifysound add <name> <file>`                  |
+| "switch to <name>" / "알림음 <이름>으로 바꿔줘"                                   | `notifysound use <name>`                         |
+| "let me hear it" / "알림음 들려줘"                                                | `notifysound test`                               |
+| "delete the <name> sound" / "알림음 <이름> 지워줘"                                | `notifysound remove <name>`                      |
+| "reinstall the hooks" / "알림음 훅 다시 설치해줘"                                 | `notifysound install`                            |
+| "remove notifysound" / "알림음 기능 제거해줘"                                     | `notifysound uninstall`                          |
 | "upgraded but the codex hook is missing" / "업그레이드했는데 코덱스 훅이 안 붙어" | `notifysound migrate` then `notifysound install` |
 
 ## Rules

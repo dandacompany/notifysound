@@ -260,8 +260,23 @@ uninstall() {
     warn "If notifysound really is installed elsewhere, set NOTIFYSOUND_PREFIX to that path."
     exit 2
   fi
+  # A failed hook cleanup must STOP us, not be noted while we carry on deleting.
+  # Continuing left the user's notify.sh sourcing a file we then removed — a
+  # broken hook produced by the very command meant to remove it.
+  #
+  # `|| rc=$?` rather than a bare call: under set -e a bare non-zero call would
+  # abort before the status could be read, and inside an `if` condition it would
+  # be invisible instead.
+  local rc=0
   if [ -x "$NS_PREFIX/scripts/notifysound.sh" ]; then
-    "$NS_PREFIX/scripts/notifysound.sh" uninstall || warn "hook removal reported a problem; continuing"
+    "$NS_PREFIX/scripts/notifysound.sh" uninstall || rc=$?
+    if [ "$rc" -ne 0 ]; then
+      warn ""
+      warn "Nothing was removed: the hooks could not be cleaned up first (exit $rc)."
+      warn "Deleting the install tree now would leave your hooks pointing at files"
+      warn "that no longer exist. Resolve the hook problem above and try again."
+      exit "$rc"
+    fi
   fi
   for dir in "${skill_dirs[@]}"; do
     if [ -L "$dir/notifysound" ]; then rm -f "$dir/notifysound"; fi
@@ -294,10 +309,13 @@ main() {
   deploy "$src"
   do_links
 
+  local hook_rc=0
   if [ "$do_hooks" -eq 1 ]; then
     say "hooks"
-    "$NS_PREFIX/scripts/notifysound.sh" install \
-      || warn "hook install reported a problem — run 'notifysound status' to see what landed"
+    # Same reason as in uninstall(): capture the status instead of letting it
+    # dissolve into a warning. Reporting a successful install while a host was
+    # refused is the failure mode this exists to prevent.
+    "$NS_PREFIX/scripts/notifysound.sh" install || hook_rc=$?
   else
     say "hooks skipped (--no-hooks). Run 'notifysound install' when you want them."
   fi
@@ -316,6 +334,16 @@ main() {
   say "  notifysound list        see the 12 built-in sounds"
   say "  notifysound use glass   pick one"
   say "  notifysound test        hear it now"
+
+  if [ "$hook_rc" -ne 0 ]; then
+    say ""
+    warn "The files are in place, but the hooks are NOT fully installed (exit $hook_rc)."
+    warn "See the messages above, then run: notifysound status"
+    return "$hook_rc"
+  fi
 }
 
+# Explicit rather than relying on set -e to carry main's status out: the whole
+# point of this round is that a status must not depend on a subtlety to survive.
 main
+exit $?

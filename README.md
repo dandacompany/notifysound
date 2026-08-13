@@ -117,7 +117,18 @@ control rather than turning it on.
 `~/.claude/notifysound/sounds/`, so moving or deleting the original afterwards
 does not affect playback.
 
-Exit codes: `0` success, `1` user error, `2` environment error.
+### Exit codes
+
+| code | meaning |
+| --- | --- |
+| `0` | everything asked for happened |
+| `1` | user error — a bad argument, an unknown sound name |
+| `2` | environment error, or a step meant to change something did not |
+| `3` | nothing was changed on the Codex side: it holds a pre-2.2 layout and needs `notifysound migrate` first |
+
+`install.sh` passes these through, so a script wrapping it can tell "refused,
+nothing touched" apart from "tried and broke". When both happen at once, `2`
+wins — the more severe fact is the one you have to act on.
 
 ## Built-in sounds
 

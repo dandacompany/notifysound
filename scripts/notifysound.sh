@@ -354,16 +354,37 @@ fi
 # other. Each reports its own result, and the command exits non-zero if any of
 # them failed (printing a success line on failure was the core defect fixed in
 # v1 Task 5).
+# Exit status contract, written down because this is the third time in this
+# project that a status stopped meaning anything as it crossed a layer:
+#
+#   0  everything asked for happened
+#   1  user error (bad argument, unknown name)
+#   2  environment error, or a step meant to change something did not
+#   3  nothing was changed on the Codex side, because it holds a pre-2.2 layout
+#      and `notifysound migrate` is needed first
+#
+# 3 has to survive to the process exit status: install.sh distinguishes
+# "refused, nothing touched" from "tried and broke". When both happen, 2 wins —
+# the more severe fact is the one the caller must act on.
 cmd_install() {
-  local failed=0
+  local failed=0 need_migrate=0 codex_rc
   # Registration runs before the hooks, so that a hook failure still leaves a
   # usable sound library behind.
-  local picked
+  local picked pick_rc
   if ns_register_builtins; then
     printf 'built-in sounds registered\n'
     # A fresh install would otherwise be registered, wired up, and completely
     # silent until the user happened to run `use`. Only fills a null selection.
-    if picked="$(ns_pick_default_sound)" && [ -n "$picked" ]; then
+    #
+    # pick_rc is captured rather than tested inline: inside an `if` condition a
+    # non-zero return is invisible to set -e and then discarded, so a failed
+    # config write here used to be reported as a successful install.
+    pick_rc=0
+    picked="$(ns_pick_default_sound)" || pick_rc=$?
+    if [ "$pick_rc" -ne 0 ]; then
+      printf 'could not choose a default sound (is the config writable?)\n' >&2
+      failed=1
+    elif [ -n "$picked" ]; then
       printf 'current sound: %s (nothing was selected yet)\n' "$picked"
     fi
   else
@@ -381,16 +402,22 @@ cmd_install() {
     printf 'skipped (file not found): %s\n' "$NS_CLAUDE_SETTINGS"
   fi
   if [ -f "$NS_CODEX_NOTIFY" ]; then
-    ns_install_codex "$NS_CODEX_NOTIFY"
-    case $? in
+    # `|| rc=$?` rather than a bare call followed by `case $?`: under set -e a
+    # bare non-zero call aborts the shell right there, so the status escaped
+    # correctly but the explanation never printed. The status surviving is not
+    # the same as its meaning surviving.
+    codex_rc=0
+    ns_install_codex "$NS_CODEX_NOTIFY" || codex_rc=$?
+    case $codex_rc in
       0) printf 'Codex CLI hook installed: %s\n' "$NS_CODEX_NOTIFY" ;;
-      3) report_needs_migrate "$NS_CODEX_NOTIFY"; failed=1 ;;
+      3) report_needs_migrate "$NS_CODEX_NOTIFY"; need_migrate=1 ;;
       *) printf 'Codex CLI hook install failed: %s\n' "$NS_CODEX_NOTIFY" >&2; failed=1 ;;
     esac
   else
     printf 'skipped (file not found): %s\n' "$NS_CODEX_NOTIFY"
   fi
   [ "$failed" -eq 0 ] || exit 2
+  [ "$need_migrate" -eq 0 ] || exit 3
 }
 
 # rc 3 from the codex functions means an installation from an older layout is
@@ -435,7 +462,7 @@ cmd_migrate() {
 }
 
 cmd_uninstall() {
-  local failed=0
+  local failed=0 need_migrate=0 codex_rc
   if [ -f "$NS_CLAUDE_SETTINGS" ]; then
     if ns_uninstall_claude "$NS_CLAUDE_SETTINGS"; then
       printf 'Claude Code hook removed\n'
@@ -445,14 +472,16 @@ cmd_uninstall() {
     fi
   fi
   if [ -f "$NS_CODEX_NOTIFY" ]; then
-    ns_uninstall_codex "$NS_CODEX_NOTIFY"
-    case $? in
+    codex_rc=0
+    ns_uninstall_codex "$NS_CODEX_NOTIFY" || codex_rc=$?
+    case $codex_rc in
       0) printf 'Codex CLI hook removed\n' ;;
-      3) report_needs_migrate "$NS_CODEX_NOTIFY"; failed=1 ;;
+      3) report_needs_migrate "$NS_CODEX_NOTIFY"; need_migrate=1 ;;
       *) printf 'Codex CLI hook removal failed: %s\n' "$NS_CODEX_NOTIFY" >&2; failed=1 ;;
     esac
   fi
   [ "$failed" -eq 0 ] || exit 2
+  [ "$need_migrate" -eq 0 ] || exit 3
   return 0
 }
 
