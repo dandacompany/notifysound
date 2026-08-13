@@ -65,13 +65,13 @@ bash install.sh
 
 ### 설치 스크립트가 건드리는 것
 
-| 경로                                                      | 하는 일                                       |
-| --------------------------------------------------------- | --------------------------------------------- |
-| `~/.local/share/notifysound`                              | 설치 트리 — 실행할 때마다 교체                |
-| `~/.local/bin/notifysound`                                | CLI 심링크                                    |
-| `~/.claude/hooks/notifysound-play.sh`                     | 재생기 심링크                                 |
-| `~/.claude/skills`, `~/.agents/skills`, `~/.codex/skills` | 각각에 심링크, **이미 존재하는 디렉터리에만** |
-| `~/.claude/settings.json`                                 | `# notifysound` 서명이 붙은 `Stop` 훅 1개     |
+| 경로                                                      | 하는 일                                                                     |
+| --------------------------------------------------------- | --------------------------------------------------------------------------- |
+| `~/.local/share/notifysound`                              | 설치 트리 — 실행할 때마다 교체                                              |
+| `~/.local/bin/notifysound`                                | CLI 심링크                                                                  |
+| `~/.claude/hooks/notifysound-play.sh`                     | 재생기 심링크                                                               |
+| `~/.claude/skills`, `~/.agents/skills`, `~/.codex/skills` | 각각에 심링크, **이미 존재하는 디렉터리에만**                               |
+| `~/.claude/settings.json`                                 | `# notifysound` 서명이 붙은 `Stop` 훅 1개                                   |
 | `~/.codex/hooks/notify.sh`                                | `# notifysound` 서명이 붙은 **줄 1개** (우리 소유 `codex-hook.sh`를 source) |
 
 사용자의 음원과 설정이 있는 `~/.claude/notifysound/`는 절대 건드리지 않는다.
@@ -154,7 +154,13 @@ notifysound status          # 무엇이 켜져 있고, 설치돼 있고, 연결�
 
 의도적으로, 조용히. config가 없거나, 깨졌거나, 꺼져 있거나, 더 이상 존재하지 않는
 파일을 가리킬 때 `notifysound-play.sh`는 아무것도 출력하지 않고 exit 0으로 끝난다.
-소리 문제가 에이전트 문제가 되는 일은 허용하지 않는다.
+소리 문제가 에이전트 문제가 되는 일은 허용하지 않는다. (`NOTIFYSOUND_LIB`만 예외이며,
+이것은 신뢰 입력이다 — 적대적 스크립트를 가리키게 하는 순간 이미 임의 코드 실행이므로
+종료 코드도 바꿀 수 있다.)
+
+Codex 훅은 사용자의 `notify.sh`에서 source되며 `BASH_SOURCE`로 형제 파일을 찾는다.
+따라서 그 파일은 **bash**여야 한다. Codex CLI는 bash `notify.sh`를 제공하지만, 다른
+셸로 다시 작성했다면 훅이 자기 위치를 찾지 못한다.
 
 알아 둘 만한 두 가지 귀결이 있다.
 

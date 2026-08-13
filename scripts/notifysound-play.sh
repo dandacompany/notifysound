@@ -2,7 +2,15 @@
 # notifysound - turn-completion sound player
 # Usage: notifysound-play.sh <host>   (host: claude | codex)
 #
-# Iron rule: exit 0 with no output, on every path, always.
+# Iron rule: exit 0 with no output, on every path we control.
+#
+# Precisely: for every failure the player can encounter — missing, corrupt or
+# disabled config, an absent sound file, a missing library — it exits 0 and
+# writes nothing. The one thing outside that guarantee is a NOTIFYSOUND_LIB
+# pointed at a hostile script: an EXIT trap that signals the process can still
+# change the exit code. That variable already grants arbitrary code execution,
+# so guarding it would buy nothing; the honest statement is that it is trusted
+# input, not that the contract is absolute.
 #
 # That rule is enforced STRUCTURALLY rather than by remembering to write
 # `|| exit 0` after each step. The whole body runs in a subshell with both

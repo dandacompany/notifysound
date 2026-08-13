@@ -71,15 +71,34 @@ if [ "${#extra_skill_dirs[@]}" -gt 0 ]; then
   skill_dirs+=("${extra_skill_dirs[@]}")
 fi
 
-# Is the existing prefix a notifysound tree we may replace? The marker file is
-# the primary signal, but trees deployed before it existed (2.0.x) do not have
-# one — recognising ownership by the marker alone made every earlier install
-# un-upgradable, which is why the shape of the tree counts as well.
+# Is the existing prefix a notifysound tree we may replace? This gates an
+# `rm -rf`, so "a file with the right name exists" is not good enough — an empty
+# `touch .notifysound-install` in any directory would have handed us permission
+# to delete it.
+#
+# The marker therefore carries content we can check: the absolute prefix it was
+# written for. Forging it now means knowing and writing that exact path, which
+# is a far cry from creating an empty file. It is not a security boundary
+# against someone who can already write into the directory — nothing in a shell
+# installer can be — but it stops an accident or a stray file from qualifying.
+#
+# Pre-marker trees (2.0.x) are recognised by CONTENT, not by filename: three
+# plausible names would otherwise be enough, so we require the scripts to
+# actually be ours.
 prefix_is_ours() {
-  [ -f "$NS_PREFIX/$NS_MARKER" ] && return 0
+  local want real
+  if [ -f "$NS_PREFIX/$NS_MARKER" ]; then
+    real="$(cd "$NS_PREFIX" 2>/dev/null && pwd -P)" || return 1
+    want="prefix=$real"
+    grep -qxF "$want" "$NS_PREFIX/$NS_MARKER" 2>/dev/null && return 0
+  fi
   [ -f "$NS_PREFIX/VERSION" ] \
     && [ -f "$NS_PREFIX/scripts/notifysound.sh" ] \
-    && [ -f "$NS_PREFIX/scripts/notifysound-play.sh" ]
+    && [ -f "$NS_PREFIX/scripts/notifysound-play.sh" ] \
+    && grep -q 'notifysound - CLI for the agent turn-completion sound' \
+         "$NS_PREFIX/scripts/notifysound.sh" 2>/dev/null \
+    && grep -q 'notifysound - turn-completion sound player' \
+         "$NS_PREFIX/scripts/notifysound-play.sh" 2>/dev/null
 }
 
 check_prereqs() {
@@ -177,7 +196,14 @@ deploy() {
   mkdir -p "$NS_PREFIX"
   # The marker goes in first, so an interrupted first install still leaves a
   # tree the next run recognises as ours instead of refusing forever.
-  printf 'notifysound install tree — safe to delete\n' > "$NS_PREFIX/$NS_MARKER"
+  {
+    printf 'notifysound install tree — safe to delete\n'
+    printf 'version=%s\n' "$(cat "$src/VERSION" 2>/dev/null || echo '?')"
+    # The prefix is recorded physically resolved, and prefix_is_ours compares it
+    # against the resolved path on the next run. A marker copied elsewhere, or
+    # created blind, will not match.
+    printf 'prefix=%s\n' "$(cd "$NS_PREFIX" && pwd -P)"
+  } > "$NS_PREFIX/$NS_MARKER"
   for item in SKILL.md VERSION scripts sounds; do
     rm -rf "${NS_PREFIX:?}/$item"
     cp -R "$src/$item" "$NS_PREFIX/$item"

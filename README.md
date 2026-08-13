@@ -160,7 +160,13 @@ re-point the symlinks and it keeps working.
 
 By design, quietly. `notifysound-play.sh` exits 0 with no output when the config
 is missing, corrupt, disabled, or points at a file that no longer exists. A sound
-problem is never allowed to become an agent problem.
+problem is never allowed to become an agent problem. (`NOTIFYSOUND_LIB` is the
+one exception, and it is trusted input — pointing it at a hostile script already
+grants arbitrary code execution, so it can change the exit code too.)
+
+The Codex hook is sourced by your `notify.sh` and resolves its siblings through
+`BASH_SOURCE`, so that file must be **bash**. Codex CLI ships a bash `notify.sh`;
+if you have rewritten yours in another shell, the hook will not find itself.
 
 Two consequences worth knowing:
 

@@ -110,12 +110,21 @@ ns_backup() {
 # startswith/endswith rather than a regex: the command contains {, }, \n and
 # quotes, all of which are regex-significant, and one mis-escape here silently
 # widens or narrows what we delete.
+#
+# `ours` is not just startswith + endswith: those two alone let ANYTHING sit in
+# between, including text that closes our quote and runs other commands
+# (`bash 'a'; echo pwned; : ' claude; printf …  # notifysound`). The middle must
+# be a single quoted token, so it may not contain a quote of its own.
+#
+# `legacy` recognises the 2.0.0 form, which wrote the player path unquoted.
+# It exists ONLY so that upgrading replaces it instead of leaving a second live
+# hook behind, and it is pinned to the exact tail 2.0.0 emitted.
 ns_claude_strip() {
   local settings tmp
   settings="$(ns_real_file "$1")"
   tmp="$(mktemp)"
-  jq --arg pre "$NS_CLAUDE_PREFIX" --arg suf "$NS_CLAUDE_SUFFIX" '
-    def ours: (.command // "") | (startswith($pre) and endswith($suf));
+  jq --arg pre "$NS_CLAUDE_PREFIX" --arg suf "$NS_CLAUDE_SUFFIX" \
+    "$NS_CLAUDE_JQ_OURS"'
     .hooks.Stop = ((.hooks.Stop // []) | map(
       (.hooks // []) as $orig
       | ($orig | map(select(ours | not))) as $kept
@@ -129,11 +138,25 @@ ns_claude_strip() {
   return 2
 }
 
+# The same predicate as ns_claude_strip. Kept in one string so the two can
+# never drift apart — a stripper and a counter that disagree is how a "success"
+# gets reported for a hook that is still there.
+# shellcheck disable=SC2016 # this is a jq filter, not shell; $pre/$suf are jq vars
+NS_CLAUDE_JQ_OURS='
+  def middle: .[($pre | length):(length - ($suf | length))];
+  def exact: startswith($pre) and endswith($suf)
+             and (length >= (($pre | length) + ($suf | length)))
+             and (middle | index("\u0027") | not);
+  def legacy: startswith("bash /") and endswith($suf | ltrimstr("\u0027"))
+              and (contains("notifysound-play.sh"));
+  def ours: (.command // "") | (exact or legacy);
+'
+
 ns_claude_signed_count() {
   local settings
   settings="$(ns_real_file "$1")"
   jq --arg pre "$NS_CLAUDE_PREFIX" --arg suf "$NS_CLAUDE_SUFFIX" \
-    '[.hooks.Stop[]?.hooks[]? | select((.command // "") | (startswith($pre) and endswith($suf)))] | length' \
+    "$NS_CLAUDE_JQ_OURS"'[.hooks.Stop[]?.hooks[]? | select(ours)] | length' \
     "$settings" 2>/dev/null
 }
 
@@ -195,11 +218,71 @@ function ours(line,   n) {
          (n >= length(pre) + length(suf)) &&
          (substr(line, n - length(suf) + 1) == suf)
 }
+# The three-line block 2.0.x used to write. Recognised ONLY so that upgrading
+# removes it — leaving it behind meant the old block and the new line both ran,
+# and a later uninstall took only the new line, orphaning theirs forever.
+# Nothing else may ever match this: line 1 and line 3 are fixed text, and line 2
+# has to end with the exact tail we generated back then.
+function legacy_open(line) {
+  return line == "if [[ \"$JSON\" == *\"agent-turn-complete\"* ]]; then"
+}
+function legacy_body(line,   t) {
+  t = "codex   # notifysound"
+  return (length(line) > length(t)) &&
+         (substr(line, length(line) - length(t) + 1) == t) &&
+         (index(line, "notifysound-play.sh") > 0) &&
+         (substr(line, 1, 7) == "  bash ")
+}
+# Conservative heredoc tracking. Inside a heredoc body the text is DATA, not
+# shell we may edit, so nothing there is ever matched. The detection is
+# deliberately approximate — a real one needs a shell parser — but it errs
+# toward skipping, i.e. toward preserving, which is the safe direction: the
+# worst case is that we fail to find our own line and refuse, never that we
+# delete somebody else content.
+function heredoc_start(line,   m, d, i) {
+  if (match(line, /<<-?[ \t]*[\x27"]?[A-Za-z_][A-Za-z0-9_]*[\x27"]?/) == 0) return ""
+  d = substr(line, RSTART, RLENGTH)
+  sub(/^<<-?[ \t]*/, "", d)
+  gsub(/[\x27"]/, "", d)
+  return d
+}
 BEGIN { pre = ENVIRON["NS_AWK_PRE"]; suf = ENVIRON["NS_AWK_SUF"] }
+{
+  if (in_heredoc) {
+    line = $0
+    sub(/^\t+/, "", line)
+    if (line == delim || $0 == delim) in_heredoc = 0
+    skip_blank = 0
+    if (mode == "strip") print
+    next
+  }
+}
 ours($0) { count++; skip_blank = 1; next }
+legacy_open($0) && !legacy_pending { legacy_pending = 1; hold = $0; next }
+legacy_pending == 1 {
+  if (legacy_body($0)) { legacy_pending = 2; hold2 = $0; next }
+  legacy_pending = 0
+  if (mode == "strip") print hold
+  # fall through so this line is still considered normally
+}
+legacy_pending == 2 {
+  legacy_pending = 0
+  if ($0 == "fi") { count++; skip_blank = 1; next }
+  if (mode == "strip") { print hold; print hold2 }
+  # fall through
+}
 skip_blank && /^$/ { skip_blank = 0; next }
-{ skip_blank = 0; if (mode == "strip") print }
-END { if (mode == "count") print count + 0 }
+{
+  skip_blank = 0
+  d = heredoc_start($0)
+  if (d != "") { in_heredoc = 1; delim = d }
+  if (mode == "strip") print
+}
+END {
+  if (legacy_pending >= 1 && mode == "strip") print hold
+  if (legacy_pending == 2 && mode == "strip") print hold2
+  if (mode == "count") print count + 0
+}
 '
 
 ns_codex_strip() {
@@ -287,6 +370,11 @@ ns_uninstall_codex() {
   local notify
   notify="$(ns_real_file "$1")"
   [ -f "$notify" ] || return 1
+  # The same drift check install does. Without it, a line our recogniser can no
+  # longer see (a CRLF round trip is enough — awk leaves the \r and the suffix
+  # match fails) produced rc 0 and a count of 0 while the line was still in the
+  # file and still executing: a reported success for work that did not happen.
+  [ "$(ns_codex_drift_count "$notify")" = "0" ] || return 2
   ns_backup "$notify" >/dev/null || return 2
   ns_codex_strip "$notify" || return 2
   [ "$(ns_codex_signed_count "$notify")" = "0" ] || return 2
