@@ -77,6 +77,21 @@ ns_register_builtins() {
   return 0
 }
 
+# True only when <path> physically sits directly inside the user's sounds
+# directory. This is the gate on every rm: a path read out of config.json is
+# untrusted input, and without this check a corrupted or hand-edited config can
+# make `remove` (or `add --force`) delete any file the user can write. Resolved
+# with `cd ... && pwd -P` so neither a `../` segment nor a symlinked parent can
+# smuggle a target out of the managed area.
+ns_is_managed_sound_path() {
+  local path="$1" parent real_parent real_sounds
+  parent="$(dirname "$path")"
+  real_parent="$(cd "$parent" 2>/dev/null && pwd -P)" || return 1
+  [ -n "$real_parent" ] || return 1
+  real_sounds="$(cd "$(ns_sounds_dir)" 2>/dev/null && pwd -P)" || return 1
+  [ "$real_parent" = "$real_sounds" ]
+}
+
 ns_home() {
   printf '%s\n' "${NOTIFYSOUND_HOME:-$HOME/.claude/notifysound}"
 }

@@ -68,6 +68,15 @@ fi
 
 check_prereqs() {
   local bad=0
+  # deploy() runs `rm -rf "$NS_PREFIX/<item>"`. A trailing path component after
+  # a symlink IS followed, so a symlinked prefix would delete directories in
+  # whatever it points at — outside anything this installer owns.
+  if [ -L "$NS_PREFIX" ]; then
+    warn "the install prefix is a symlink: $NS_PREFIX -> $(readlink "$NS_PREFIX")"
+    warn "Refusing, because replacing the tree through a symlink would delete files outside it."
+    warn "Point NOTIFYSOUND_PREFIX at a real directory."
+    bad=1
+  fi
   # deploy() replaces the prefix wholesale on every run, which is what makes
   # re-running an update. State kept inside the prefix would be destroyed by
   # that. Refuse rather than silently delete somebody's sounds.

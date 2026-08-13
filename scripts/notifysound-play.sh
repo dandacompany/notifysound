@@ -26,8 +26,11 @@ if [ -z "$NS_LIB" ]; then
   NS_LIB="$(cd "$(dirname "$ns_self")" && pwd)/lib/config.sh"
 fi
 [ -r "$NS_LIB" ] || exit 0
+# stdout is redirected for the duration of the source so that "silent on every
+# path" holds literally: a library that prints while being sourced would
+# otherwise leak into the hook's stdout, where the host parses it.
 # shellcheck source=/dev/null
-source "$NS_LIB" || exit 0
+source "$NS_LIB" >/dev/null || exit 0
 
 host="${1:-}"
 [ -n "$host" ] || exit 0
@@ -61,6 +64,19 @@ already_playing && exit 0
 
 nohup "$player" "$sound_path" </dev/null >/dev/null 2>&1 &
 child_pid=$!
-printf '%s\n' "$child_pid" > "$lock_file" 2>/dev/null || true
+
+# Write the lock through a fresh temp file and rename it into place. A plain
+# `> "$lock_file"` redirection follows an existing symlink, so anything that
+# planted a link at this path would have its target overwritten with a PID.
+# mv replaces the link itself instead. Every step stays quiet and non-fatal —
+# a missing lock only costs us the duplicate-play guard.
+lock_tmp="$(mktemp "$(ns_home)/.playing.XXXXXX" 2>/dev/null)" || lock_tmp=""
+if [ -n "$lock_tmp" ]; then
+  if printf '%s\n' "$child_pid" > "$lock_tmp" 2>/dev/null; then
+    mv -f "$lock_tmp" "$lock_file" 2>/dev/null || rm -f "$lock_tmp" 2>/dev/null
+  else
+    rm -f "$lock_tmp" 2>/dev/null
+  fi
+fi
 
 exit 0

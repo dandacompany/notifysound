@@ -231,13 +231,13 @@ cmd_add() {
   fi
   mv "$tmp_dest" "$dest"
 
-  # Delete the file the old registration pointed at — but never when it is a
-  # built-in. Overriding a built-in name with --force would otherwise try to
-  # delete a macOS system sound (blocked by SIP, and the resulting rm failure
-  # aborts the command under set -e) or actually delete a bundled wav from the
-  # install tree, leaving that built-in gone until the next install.
+  # Delete the file the old registration pointed at — but only after proving it
+  # is one of ours. The path comes out of config.json, which is untrusted input:
+  # a hand-edited or corrupted entry would otherwise make --force delete an
+  # arbitrary file. This also covers built-ins, whose files live in the install
+  # tree or /System/Library/Sounds and must survive an override.
   if [ -n "$existing" ] && [ "$existing" != "$dest" ] && [ -f "$existing" ] \
-     && ! ns_is_builtin_path "$existing"; then
+     && ns_is_managed_sound_path "$existing"; then
     rm -f "$existing"
   fi
   # shellcheck disable=SC2016 # $n/$d are jq --arg variables; bash must not expand them
@@ -302,10 +302,21 @@ cmd_remove() {
   if [ "$name" = "$current" ]; then
     die "that is the current sound. Pick another first: notifysound use <name>"
   fi
-  rm -f "$path"
-  # shellcheck disable=SC2016 # $n is a jq --arg variable; bash must not expand it
-  ns_set 'del(.sounds[$n])' n "$name"
-  printf 'removed: %s\n' "$name"
+  # The registered path is untrusted input. Unregistering is always safe, but
+  # deleting is only allowed once the file is proven to live in our own sounds
+  # directory — otherwise a corrupted config turns `remove` into a delete-any-
+  # file primitive.
+  if ns_is_managed_sound_path "$path"; then
+    rm -f "$path"
+    # shellcheck disable=SC2016 # $n is a jq --arg variable; bash must not expand it
+    ns_set 'del(.sounds[$n])' n "$name"
+    printf 'removed: %s\n' "$name"
+  else
+    # shellcheck disable=SC2016 # $n is a jq --arg variable; bash must not expand it
+    ns_set 'del(.sounds[$n])' n "$name"
+    printf 'unregistered: %s\n' "$name"
+    printf 'left the file in place, it is outside the managed sound library: %s\n' "$path"
+  fi
 }
 
 cmd_test() {
