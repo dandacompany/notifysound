@@ -183,6 +183,14 @@ link_force() {
   fi
   tmp="$(mktemp -u "$dir/.notifysound-link.XXXXXX")"
   ln -s "$target" "$tmp" || fail "cannot create a link in $dir"
+  # `mv -f tmp link` FOLLOWS a symlink that points at a directory and moves the
+  # temp INSIDE it — the very trap the temp+mv dance was introduced to avoid in
+  # `ln -sfn`. Every reinstall then left a stray link in the target directory
+  # and never refreshed the real one. Removing the old symlink first is the only
+  # way to make mv land on the path rather than through it. The window between
+  # the two is brief and a momentarily missing link is harmless; a silently
+  # unrefreshed link is not.
+  [ -L "$link" ] && rm -f "$link"
   mv -f "$tmp" "$link" || { rm -f "$tmp"; fail "cannot place the link at $link"; }
 }
 
