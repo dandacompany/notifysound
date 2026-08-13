@@ -18,6 +18,14 @@ nothing to stdout on every failure path, so a missing file, a corrupt config or 
 broken symlink can never block or corrupt an agent turn. All the judgment lives
 in the CLI.
 
+> **This tool edits files in your home directory.** It adds one hook entry to
+> `~/.claude/settings.json` and one line to `~/.codex/hooks/notify.sh`, and it
+> replaces its own install tree under `~/.local/share/notifysound` on every
+> update. It writes a timestamped backup beside each configuration file before
+> touching it, and it only ever removes entries that exactly match the text it
+> generated — but back up those two files yourself before installing if they
+> matter to you. Read `install.sh` before running it.
+
 ## Requirements
 
 - **macOS.** Playback goes through `afplay`. Linux and Windows are not supported;
@@ -159,8 +167,10 @@ Two consequences worth knowing:
 - `uninstall` does not restore a notification hook that existed before
   notifysound. It removes what carries the `# notifysound` signature and leaves
   no hook behind.
-- Conversely, `install` and `uninstall` **only** touch signed entries. A
-  `Stop` hook or an `agent-turn-complete` block you wrote yourself survives both,
+- Conversely, `install` and `uninstall` **only** touch text that exactly matches
+  what they generated. All of notifysound's Codex logic lives in a file we own
+  and is reached by a single sourced line, so your own `notify.sh` code is never
+  parsed, rewritten, or deleted. A `Stop` hook you wrote yourself survives both,
   byte for byte.
 
 Every edit to `settings.json` or `notify.sh` writes a timestamped backup

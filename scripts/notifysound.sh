@@ -122,7 +122,7 @@ cmd_status() {
   fi
   printf 'hooks\n'
   report_hook_install claude "$NS_CLAUDE_SETTINGS" ns_claude_signed_count
-  report_hook_install codex  "$NS_CODEX_NOTIFY"     ns_codex_signed_count
+  report_hook_install codex  "$NS_CODEX_NOTIFY"     ns_codex_signed_count ns_codex_hook_ok
   report_player_install
   report_skill_links
 }
@@ -153,7 +153,7 @@ report_skill_links() {
 # the name of a function taking <target-file> and printing the number of signed
 # entries (ns_claude_signed_count / ns_codex_signed_count, lib/install.sh).
 report_hook_install() {
-  local label="$1" target="$2" count_fn="$3" n
+  local label="$1" target="$2" count_fn="$3" reach_fn="${4:-}" n
   if [ ! -f "$target" ]; then
     printf '  %-7s n/a (%s missing)\n' "$label" "$target"
     return 0
@@ -164,7 +164,11 @@ report_hook_install() {
   elif [ "$n" -eq 0 ]; then
     printf '  %-7s not installed\n' "$label"
   elif [ "$n" -eq 1 ]; then
-    printf '  %-7s installed\n' "$label"
+    if [ -n "$reach_fn" ] && ! "$reach_fn"; then
+      printf '  %-7s broken (hook line present, but %s is missing)\n' "$label" "$NS_CODEX_HOOK"
+    else
+      printf '  %-7s installed\n' "$label"
+    fi
   else
     printf '  %-7s installed (warning: %s duplicate signed hooks)\n' "$label" "$n"
   fi
@@ -238,7 +242,7 @@ cmd_add() {
   # tree or /System/Library/Sounds and must survive an override.
   if [ -n "$existing" ] && [ "$existing" != "$dest" ] && [ -f "$existing" ] \
      && ns_is_managed_sound_path "$existing"; then
-    rm -f "$existing"
+    ns_delete_managed_sound "$existing"
   fi
   # shellcheck disable=SC2016 # $n/$d are jq --arg variables; bash must not expand them
   ns_set '.sounds[$n] = $d' n "$name" d "$dest"
@@ -307,7 +311,7 @@ cmd_remove() {
   # directory — otherwise a corrupted config turns `remove` into a delete-any-
   # file primitive.
   if ns_is_managed_sound_path "$path"; then
-    rm -f "$path"
+    ns_delete_managed_sound "$path"
     # shellcheck disable=SC2016 # $n is a jq --arg variable; bash must not expand it
     ns_set 'del(.sounds[$n])' n "$name"
     printf 'removed: %s\n' "$name"

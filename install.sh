@@ -5,9 +5,11 @@
 #   ~/.local/share/notifysound              the install tree (replaced on every run)
 #   ~/.local/bin/notifysound                CLI symlink
 #   ~/.claude/hooks/notifysound-play.sh     player symlink
+#   ~/.claude/hooks/codex-hook.sh           codex hook symlink (sourced by notify.sh)
 #   <each existing skills dir>/notifysound  symlink, into existing dirs only
 #   ~/.claude/settings.json                 one Stop hook, tagged "# notifysound"
-#   ~/.codex/hooks/notify.sh                one block, tagged "# notifysound"
+#   ~/.codex/hooks/notify.sh                ONE line, tagged "# notifysound",
+#                                           which sources our own codex-hook.sh
 #
 # It never touches your sounds or settings under ~/.claude/notifysound.
 # Re-running is how you update. --uninstall reverses everything except that state.
@@ -18,6 +20,9 @@ NS_PREFIX="${NOTIFYSOUND_PREFIX:-$HOME/.local/share/notifysound}"
 NS_BIN_DIR="${NOTIFYSOUND_BIN_DIR:-$HOME/.local/bin}"
 NS_HOOK_DIR="${NOTIFYSOUND_HOOK_DIR:-$HOME/.claude/hooks}"
 NS_SRC="${NOTIFYSOUND_SRC:-}"
+
+# Written into the prefix so a later run can prove the tree is ours to replace.
+NS_MARKER=".notifysound-install"
 
 do_hooks=1
 do_uninstall=0
@@ -66,16 +71,35 @@ if [ "${#extra_skill_dirs[@]}" -gt 0 ]; then
   skill_dirs+=("${extra_skill_dirs[@]}")
 fi
 
+# Is the existing prefix a notifysound tree we may replace? The marker file is
+# the primary signal, but trees deployed before it existed (2.0.x) do not have
+# one — recognising ownership by the marker alone made every earlier install
+# un-upgradable, which is why the shape of the tree counts as well.
+prefix_is_ours() {
+  [ -f "$NS_PREFIX/$NS_MARKER" ] && return 0
+  [ -f "$NS_PREFIX/VERSION" ] \
+    && [ -f "$NS_PREFIX/scripts/notifysound.sh" ] \
+    && [ -f "$NS_PREFIX/scripts/notifysound-play.sh" ]
+}
+
 check_prereqs() {
   local bad=0
-  # deploy() runs `rm -rf "$NS_PREFIX/<item>"`. A trailing path component after
-  # a symlink IS followed, so a symlinked prefix would delete directories in
-  # whatever it points at — outside anything this installer owns.
-  if [ -L "$NS_PREFIX" ]; then
-    warn "the install prefix is a symlink: $NS_PREFIX -> $(readlink "$NS_PREFIX")"
-    warn "Refusing, because replacing the tree through a symlink would delete files outside it."
-    warn "Point NOTIFYSOUND_PREFIX at a real directory."
-    bad=1
+  # deploy() runs `rm -rf "$NS_PREFIX/<item>"`, and a path component after a
+  # symlink IS followed, so the prefix must be somewhere we are entitled to
+  # delete. Checking `[ -L "$NS_PREFIX" ]` only inspected the LAST component —
+  # a symlinked PARENT walked straight past it.
+  #
+  # Rather than trying to prove a path is symlink-free (which would also reject
+  # perfectly ordinary setups: /tmp is a symlink on macOS, and plenty of people
+  # keep $HOME behind one), prove OWNERSHIP: we only replace a directory that is
+  # empty, absent, or carries the marker file we wrote there ourselves.
+  if [ -e "$NS_PREFIX" ] && ! prefix_is_ours; then
+    if [ -n "$(ls -A "$NS_PREFIX" 2>/dev/null)" ]; then
+      warn "$NS_PREFIX already exists, is not empty, and was not created by this installer."
+      warn "Refusing: replacing it would delete files notifysound does not own."
+      warn "(If this really is a stale notifysound tree, remove it yourself and re-run.)"
+      bad=1
+    fi
   fi
   # deploy() replaces the prefix wholesale on every run, which is what makes
   # re-running an update. State kept inside the prefix would be destroyed by
@@ -151,6 +175,9 @@ deploy() {
     [ -e "$src/$item" ] || fail "source tree is missing $item (is $src a notifysound checkout?)"
   done
   mkdir -p "$NS_PREFIX"
+  # The marker goes in first, so an interrupted first install still leaves a
+  # tree the next run recognises as ours instead of refusing forever.
+  printf 'notifysound install tree — safe to delete\n' > "$NS_PREFIX/$NS_MARKER"
   for item in SKILL.md VERSION scripts sounds; do
     rm -rf "${NS_PREFIX:?}/$item"
     cp -R "$src/$item" "$NS_PREFIX/$item"
@@ -165,6 +192,10 @@ do_links() {
   say "  $NS_BIN_DIR/notifysound"
   link_force "$NS_PREFIX/scripts/notifysound-play.sh" "$NS_HOOK_DIR/notifysound-play.sh"
   say "  $NS_HOOK_DIR/notifysound-play.sh"
+  # The Codex hook line sources this file. It must sit beside the player,
+  # because that is where the line's path is derived from.
+  link_force "$NS_PREFIX/scripts/codex-hook.sh" "$NS_HOOK_DIR/codex-hook.sh"
+  say "  $NS_HOOK_DIR/codex-hook.sh"
   for dir in "${skill_dirs[@]}"; do
     if [ -d "$dir" ]; then
       link_force "$NS_PREFIX" "$dir/notifysound"
@@ -187,6 +218,7 @@ uninstall() {
   done
   if [ -L "$NS_BIN_DIR/notifysound" ]; then rm -f "$NS_BIN_DIR/notifysound"; fi
   if [ -L "$NS_HOOK_DIR/notifysound-play.sh" ]; then rm -f "$NS_HOOK_DIR/notifysound-play.sh"; fi
+  if [ -L "$NS_HOOK_DIR/codex-hook.sh" ]; then rm -f "$NS_HOOK_DIR/codex-hook.sh"; fi
   rm -rf "${NS_PREFIX:?}"
   say "notifysound removed."
   say "Your sounds and settings were left in ${NOTIFYSOUND_HOME:-$HOME/.claude/notifysound}."

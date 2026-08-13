@@ -84,12 +84,39 @@ ns_register_builtins() {
 # with `cd ... && pwd -P` so neither a `../` segment nor a symlinked parent can
 # smuggle a target out of the managed area.
 ns_is_managed_sound_path() {
-  local path="$1" parent real_parent real_sounds
+  local path="$1" parent real_parent real_sounds base
+  base="$(basename "$path")"
+  # A basename that is not a plain filename can never be something `add` wrote.
+  case "$base" in
+    ''|.|..|*/*) return 1 ;;
+  esac
   parent="$(dirname "$path")"
   real_parent="$(cd "$parent" 2>/dev/null && pwd -P)" || return 1
   [ -n "$real_parent" ] || return 1
   real_sounds="$(cd "$(ns_sounds_dir)" 2>/dev/null && pwd -P)" || return 1
   [ "$real_parent" = "$real_sounds" ]
+}
+
+# Delete a sound that ns_is_managed_sound_path has already approved.
+#
+# The deletion is performed as `rm -f -- ./<basename>` from inside the
+# physically-resolved sounds directory, rather than by handing the whole
+# configured path back to rm. That keeps the operation confined to the directory
+# we validated even if the path string contains anything surprising, and it
+# removes a symlink placed inside the library rather than whatever it points at.
+#
+# Known limit, stated rather than papered over: a local attacker who can replace
+# the sounds directory itself between the check and this call still wins the
+# race. Closing that properly needs directory file descriptors (openat/unlinkat),
+# which bash does not offer; the window is one process spawn wide and requires
+# write access to the user's own state directory, at which point the attacker can
+# simply edit config.json instead.
+ns_delete_managed_sound() {
+  local path="$1" base sounds
+  base="$(basename "$path")"
+  sounds="$(ns_sounds_dir)"
+  ( cd -P "$sounds" 2>/dev/null && rm -f -- "./$base" ) 2>/dev/null || return 1
+  return 0
 }
 
 ns_home() {

@@ -17,6 +17,13 @@ English: [README.md](./README.md)
 stdout 무출력이므로, 파일이 없거나 config가 깨졌거나 심링크가 끊어져도 에이전트 턴을
 막거나 망가뜨릴 수 없다. 판단은 전부 CLI에 있다.
 
+> **이 도구는 홈 디렉터리의 파일을 편집한다.** `~/.claude/settings.json`에 훅
+> 항목 하나를, `~/.codex/hooks/notify.sh`에 줄 하나를 추가하며, 업데이트할
+> 때마다 `~/.local/share/notifysound`의 설치 트리를 교체한다. 설정 파일을
+> 건드리기 전에 타임스탬프 백업을 옆에 쓰고, 자기가 생성한 텍스트와 정확히
+> 일치하는 항목만 제거한다 — 그래도 두 파일이 소중하다면 설치 전에 직접
+> 백업해 두는 편이 좋다. `install.sh`는 실행하기 전에 읽어볼 것.
+
 ## 요구 사항
 
 - **macOS.** 재생은 `afplay`를 쓴다. Linux·Windows는 지원하지 않는다 —
@@ -65,7 +72,7 @@ bash install.sh
 | `~/.claude/hooks/notifysound-play.sh`                     | 재생기 심링크                                 |
 | `~/.claude/skills`, `~/.agents/skills`, `~/.codex/skills` | 각각에 심링크, **이미 존재하는 디렉터리에만** |
 | `~/.claude/settings.json`                                 | `# notifysound` 서명이 붙은 `Stop` 훅 1개     |
-| `~/.codex/hooks/notify.sh`                                | `# notifysound` 서명이 붙은 블록 1개          |
+| `~/.codex/hooks/notify.sh`                                | `# notifysound` 서명이 붙은 **줄 1개** (우리 소유 `codex-hook.sh`를 source) |
 
 사용자의 음원과 설정이 있는 `~/.claude/notifysound/`는 절대 건드리지 않는다.
 설치 스크립트를 다시 실행하는 것이 곧 업데이트다. `--uninstall`은 상태 디렉터리를
@@ -153,9 +160,10 @@ notifysound status          # 무엇이 켜져 있고, 설치돼 있고, 연결�
 
 - `uninstall`은 notifysound 이전에 있던 알림 훅을 복원하지 않는다. `# notifysound`
   서명이 붙은 것을 제거하고, 훅이 없는 상태로 끝난다.
-- 반대로 `install`과 `uninstall`은 **오직** 서명된 항목만 건드린다. 직접 작성한
-  `Stop` 훅이나 `agent-turn-complete` 블록은 양쪽 모두에서 한 바이트도 바뀌지 않고
-  살아남는다.
+- 반대로 `install`과 `uninstall`은 **자기가 생성한 텍스트와 정확히 일치하는 것만**
+  건드린다. notifysound의 Codex 로직은 전부 우리 소유 파일에 있고 source 한 줄로
+  연결되므로, 사용자의 `notify.sh` 코드는 파싱되지도 재작성되지도 삭제되지도
+  않는다. 직접 작성한 `Stop` 훅도 한 바이트도 바뀌지 않고 살아남는다.
 
 `settings.json`이나 `notify.sh`를 수정할 때마다 원본 옆에 타임스탬프 백업
 (`<파일>.notifysound-bak-<타임스탬프>-XXXXXX`)을 쓴다.
