@@ -23,6 +23,7 @@ NS_SRC="${NOTIFYSOUND_SRC:-}"
 
 # Written into the prefix so a later run can prove the tree is ours to replace.
 NS_MARKER=".notifysound-install"
+NS_MARKER_HEADER="notifysound install tree — safe to delete"
 
 do_hooks=1
 do_uninstall=0
@@ -86,11 +87,19 @@ fi
 # plausible names would otherwise be enough, so we require the scripts to
 # actually be ours.
 prefix_is_ours() {
-  local want real
+  local real
   if [ -f "$NS_PREFIX/$NS_MARKER" ]; then
     real="$(cd "$NS_PREFIX" 2>/dev/null && pwd -P)" || return 1
-    want="prefix=$real"
-    grep -qxF "$want" "$NS_PREFIX/$NS_MARKER" 2>/dev/null && return 0
+    # All three lines, not just one: a single `printf prefix=$(pwd -P) >` was
+    # enough to pass before. This raises the cost of a forgery from one line to
+    # reproducing our whole format — it is NOT a security boundary. Anyone who
+    # can write into the directory can write the file, and a case-insensitive
+    # filesystem, a bind mount, or a backup restored to the same physical path
+    # are all indistinguishable from the real thing by construction.
+    grep -qxF "$NS_MARKER_HEADER" "$NS_PREFIX/$NS_MARKER" 2>/dev/null \
+      && grep -qE '^version=[0-9]+\.[0-9]+\.[0-9]+$' "$NS_PREFIX/$NS_MARKER" 2>/dev/null \
+      && grep -qxF "prefix=$real" "$NS_PREFIX/$NS_MARKER" 2>/dev/null \
+      && return 0
   fi
   [ -f "$NS_PREFIX/VERSION" ] \
     && [ -f "$NS_PREFIX/scripts/notifysound.sh" ] \
@@ -197,7 +206,7 @@ deploy() {
   # The marker goes in first, so an interrupted first install still leaves a
   # tree the next run recognises as ours instead of refusing forever.
   {
-    printf 'notifysound install tree — safe to delete\n'
+    printf '%s\n' "$NS_MARKER_HEADER"
     printf 'version=%s\n' "$(cat "$src/VERSION" 2>/dev/null || echo '?')"
     # The prefix is recorded physically resolved, and prefix_is_ours compares it
     # against the resolved path on the next run. A marker copied elsewhere, or
@@ -245,6 +254,14 @@ uninstall() {
   if [ -L "$NS_BIN_DIR/notifysound" ]; then rm -f "$NS_BIN_DIR/notifysound"; fi
   if [ -L "$NS_HOOK_DIR/notifysound-play.sh" ]; then rm -f "$NS_HOOK_DIR/notifysound-play.sh"; fi
   if [ -L "$NS_HOOK_DIR/codex-hook.sh" ]; then rm -f "$NS_HOOK_DIR/codex-hook.sh"; fi
+  # The same gate install uses. A failed hook cleanup must never authorise an
+  # rm -rf, and --uninstall pointed at somebody else's directory should refuse
+  # for exactly the reason installing into it does.
+  if [ -e "$NS_PREFIX" ] && ! prefix_is_ours; then
+    warn "$NS_PREFIX was not created by this installer — leaving it alone."
+    warn "Links and hooks were removed; delete that directory yourself if you want it gone."
+    return 0
+  fi
   rm -rf "${NS_PREFIX:?}"
   say "notifysound removed."
   say "Your sounds and settings were left in ${NOTIFYSOUND_HOME:-$HOME/.claude/notifysound}."

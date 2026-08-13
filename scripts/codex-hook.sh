@@ -34,7 +34,12 @@ else
   ns_codex_hook_play="$NOTIFYSOUND_PLAY"
 fi
 
-case "${JSON:-}" in
+# The payload comes from our own arguments. `source` inherits the caller's
+# positional parameters, so this works wherever the line sits — which is what
+# lets the installer put it at a fixed position (right after the shebang)
+# instead of having to run after the user's script assigns JSON. Reading $JSON
+# as well keeps an already-installed 2.1.x line working until it is migrated.
+case "$*${JSON:-}" in
   *agent-turn-complete*)
     if [ -x "$ns_codex_hook_play" ] || [ -r "$ns_codex_hook_play" ]; then
       bash "$ns_codex_hook_play" codex >/dev/null 2>&1

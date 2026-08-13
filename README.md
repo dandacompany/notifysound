@@ -128,8 +128,10 @@ referenced in place; six are CC0 files bundled with this repository.
 | **macOS**        | `glass` `ping` `hero` `pop` `submarine` `tink`         | referenced from `/System/Library/Sounds/` |
 | **Kenney (CC0)** | `confirm` `bong` `pluck` `crystal` `question` `switch` | bundled, 0.11–0.34 s each                 |
 
-Registration never overwrites a name you already use, and never changes your
-current selection. Built-ins cannot be removed — they are install assets and
+A fresh install also picks a starting sound (`glass`, verified to exist), so it
+is audible straight away rather than silent until you run `use`. Registration
+never overwrites a name you already use, and never changes a selection you
+already have — it only fills an empty one. Built-ins cannot be removed — they are install assets and
 would return on the next install — but `add --force <name>` overrides one with
 your own file, and from that point the name is an ordinary, removable user sound.
 

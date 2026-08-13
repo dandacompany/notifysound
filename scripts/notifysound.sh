@@ -357,8 +357,14 @@ cmd_install() {
   local failed=0
   # Registration runs before the hooks, so that a hook failure still leaves a
   # usable sound library behind.
+  local picked
   if ns_register_builtins; then
     printf 'built-in sounds registered\n'
+    # A fresh install would otherwise be registered, wired up, and completely
+    # silent until the user happened to run `use`. Only fills a null selection.
+    if picked="$(ns_pick_default_sound)" && [ -n "$picked" ]; then
+      printf 'current sound: %s (nothing was selected yet)\n' "$picked"
+    fi
   else
     printf 'could not register built-in sounds\n' >&2
     failed=1

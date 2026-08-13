@@ -197,101 +197,90 @@ ns_uninstall_claude() {
 
 # --- Codex CLI -----------------------------------------------------------
 
-# One awk program serves both stripping and counting, so "is this line ours?"
-# has a single definition that the two cannot disagree about.
+# The user's notify.sh is never interpreted. Our line lives at ONE position —
+# immediately after the shebang — and that position is the only thing examined.
 #
-# A line is ours when it starts with `. '` AND ends with `'  # notifysound` —
-# the full text of the one line we generate, with only the quoted path varying.
-# The path is passed through ENVIRON, not `awk -v`: -v processes escape
-# sequences, so a path containing a literal backslash-n arrived as a real
-# newline and corrupted the file before the failure was noticed.
+# 2.1.1 tried to be careful about shell context instead, tracking heredocs so it
+# would not match inside one. The approximation was wrong in both directions: it
+# deleted a line inside a `<<\EOF` body (bash's backslash-quoted delimiter form,
+# which the tracker did not know), and it mistook the ordinary data line
+# `printf '%s\n' '<<EOF'` for an unterminated heredoc, skipped the rest of the
+# file, found no installation, and inserted a second hook on every retry.
+# Approximating shell grammar cannot be made safe; an exact version is a shell
+# parser. So the question is no longer asked. A heredoc body cannot be line 2.
+ns_codex_anchor() {
+  local first
+  first="$(head -n 1 "$1" 2>/dev/null)"
+  case "$first" in
+    '#!'*) printf '2\n' ;;
+    *)     printf '1\n' ;;
+  esac
+}
+
+ns_codex_line_at() {
+  sed -n "${2}p" "$1" 2>/dev/null
+}
+
+# Is this exactly the line we generate? Fixed prefix, fixed suffix, and a middle
+# that is one quoted token (no quote of its own), so nothing can be smuggled in.
+ns_codex_is_ours() {
+  local line="$1" mid
+  case "$line" in
+    "$NS_CODEX_PREFIX"*"$NS_CODEX_SUFFIX") : ;;
+    *) return 1 ;;
+  esac
+  mid="${line#"$NS_CODEX_PREFIX"}"
+  mid="${mid%"$NS_CODEX_SUFFIX"}"
+  case "$mid" in *"'"*) return 1 ;; esac
+  return 0
+}
+
+# Installed means: the anchor line is ours. Nothing else in the file counts,
+# which is also why a comment elsewhere mentioning codex-hook.sh can no longer
+# block an uninstall.
+ns_codex_signed_count() {
+  local notify n
+  notify="$(ns_real_file "$1")"
+  [ -f "$notify" ] || { printf '0\n'; return 0; }
+  n="$(ns_codex_anchor "$notify")"
+  if ns_codex_is_ours "$(ns_codex_line_at "$notify" "$n")"; then
+    printf '1\n'
+  else
+    printf '0\n'
+  fi
+}
+
+# Drift is now a question about one line, not a search: the anchor holds a
+# SOURCE of our hook that is not exactly the line we write — our own
+# installation after somebody hand-edited it. Inserting above it would leave two
+# live sources, and a later uninstall would take only ours.
 #
-# Residual, documented rather than papered over: a heredoc body containing that
-# exact line would still be matched. The surface is one line instead of a
-# multi-line block, and distinguishing shell from heredoc text requires a shell
-# parser — which is what kept deleting user code when we tried to be clever.
-# shellcheck disable=SC2016 # this is an awk program, not shell
-NS_CODEX_AWK='
-function ours(line,   n) {
-  n = length(line)
-  return (substr(line, 1, length(pre)) == pre) &&
-         (n >= length(pre) + length(suf)) &&
-         (substr(line, n - length(suf) + 1) == suf)
+# It has to be a sourcing line, not merely a mention. Matching anything that
+# contains the filename meant a plain `# documentation mentions codex-hook.sh`
+# on line 2 refused every install and every uninstall — the tool locked out of
+# its own file by a comment.
+ns_codex_drift_count() {
+  local notify n line base
+  notify="$(ns_real_file "$1")"
+  [ -f "$notify" ] || { printf '0\n'; return 0; }
+  n="$(ns_codex_anchor "$notify")"
+  line="$(ns_codex_line_at "$notify" "$n")"
+  base="$(basename "$NS_CODEX_HOOK")"
+  if [ -n "$line" ] && ! ns_codex_is_ours "$line"; then
+    case "$line" in
+      ". "*"$base"*|"source "*"$base"*) printf '1\n'; return 0 ;;
+    esac
+  fi
+  printf '0\n'
 }
-# The three-line block 2.0.x used to write. Recognised ONLY so that upgrading
-# removes it — leaving it behind meant the old block and the new line both ran,
-# and a later uninstall took only the new line, orphaning theirs forever.
-# Nothing else may ever match this: line 1 and line 3 are fixed text, and line 2
-# has to end with the exact tail we generated back then.
-function legacy_open(line) {
-  return line == "if [[ \"$JSON\" == *\"agent-turn-complete\"* ]]; then"
-}
-function legacy_body(line,   t) {
-  t = "codex   # notifysound"
-  return (length(line) > length(t)) &&
-         (substr(line, length(line) - length(t) + 1) == t) &&
-         (index(line, "notifysound-play.sh") > 0) &&
-         (substr(line, 1, 7) == "  bash ")
-}
-# Conservative heredoc tracking. Inside a heredoc body the text is DATA, not
-# shell we may edit, so nothing there is ever matched. The detection is
-# deliberately approximate — a real one needs a shell parser — but it errs
-# toward skipping, i.e. toward preserving, which is the safe direction: the
-# worst case is that we fail to find our own line and refuse, never that we
-# delete somebody else content.
-function heredoc_start(line,   m, d, i) {
-  if (match(line, /<<-?[ \t]*[\x27"]?[A-Za-z_][A-Za-z0-9_]*[\x27"]?/) == 0) return ""
-  d = substr(line, RSTART, RLENGTH)
-  sub(/^<<-?[ \t]*/, "", d)
-  gsub(/[\x27"]/, "", d)
-  return d
-}
-BEGIN { pre = ENVIRON["NS_AWK_PRE"]; suf = ENVIRON["NS_AWK_SUF"] }
-{
-  if (in_heredoc) {
-    line = $0
-    sub(/^\t+/, "", line)
-    if (line == delim || $0 == delim) in_heredoc = 0
-    skip_blank = 0
-    if (mode == "strip") print
-    next
-  }
-}
-ours($0) { count++; skip_blank = 1; next }
-legacy_open($0) && !legacy_pending { legacy_pending = 1; hold = $0; next }
-legacy_pending == 1 {
-  if (legacy_body($0)) { legacy_pending = 2; hold2 = $0; next }
-  legacy_pending = 0
-  if (mode == "strip") print hold
-  # fall through so this line is still considered normally
-}
-legacy_pending == 2 {
-  legacy_pending = 0
-  if ($0 == "fi") { count++; skip_blank = 1; next }
-  if (mode == "strip") { print hold; print hold2 }
-  # fall through
-}
-skip_blank && /^$/ { skip_blank = 0; next }
-{
-  skip_blank = 0
-  d = heredoc_start($0)
-  if (d != "") { in_heredoc = 1; delim = d }
-  if (mode == "strip") print
-}
-END {
-  if (legacy_pending >= 1 && mode == "strip") print hold
-  if (legacy_pending == 2 && mode == "strip") print hold2
-  if (mode == "count") print count + 0
-}
-'
 
 ns_codex_strip() {
-  local notify tmp
+  local notify tmp n
   notify="$(ns_real_file "$1")"
+  n="$(ns_codex_anchor "$notify")"
+  ns_codex_is_ours "$(ns_codex_line_at "$notify" "$n")" || return 0
   tmp="$(mktemp)"
-  if ! { NS_AWK_PRE="$NS_CODEX_PREFIX" NS_AWK_SUF="$NS_CODEX_SUFFIX" \
-         awk -v mode=strip "$NS_CODEX_AWK" "$notify" > "$tmp" \
-         && mv "$tmp" "$notify"; }; then
+  if ! { awk -v skip="$n" 'NR != skip' "$notify" > "$tmp" && mv "$tmp" "$notify"; }; then
     rm -f "$tmp"
     return 2
   fi
@@ -299,70 +288,89 @@ ns_codex_strip() {
   return 0
 }
 
-ns_codex_signed_count() {
-  local notify n
-  notify="$(ns_real_file "$1")"
-  [ -f "$notify" ] || { printf '0\n'; return 0; }
-  n="$(NS_AWK_PRE="$NS_CODEX_PREFIX" NS_AWK_SUF="$NS_CODEX_SUFFIX" \
-       awk -v mode=count "$NS_CODEX_AWK" "$notify" 2>/dev/null)"
-  printf '%s\n' "${n:-0}"
-}
-
-# Lines that reference our hook file but are NOT the exact line we generate:
-# our own installation after somebody hand-edited it, most likely by adding a
-# space or re-indenting.
+# --- one-time migration from earlier layouts ------------------------------
 #
-# Widening the recogniser to cover them is the trap both review rounds walked
-# into — a looser match starts deleting things we do not own. Instead we detect
-# the situation and refuse, leaving the file untouched and saying what to fix.
-# The alternative is a silent success that leaves two live source lines.
-ns_codex_drift_count() {
-  local notify base n
-  notify="$(ns_real_file "$1")"
-  [ -f "$notify" ] || { printf '0\n'; return 0; }
-  base="$(basename "$NS_CODEX_HOOK")"
-  n="$(NS_AWK_PRE="$NS_CODEX_PREFIX" NS_AWK_SUF="$NS_CODEX_SUFFIX" NS_AWK_BASE="$base" awk '
-    function ours(line,   n) {
-      n = length(line)
-      return (substr(line, 1, length(pre)) == pre) &&
-             (n >= length(pre) + length(suf)) &&
-             (substr(line, n - length(suf) + 1) == suf)
+# 2.0.x and 2.1.x both inserted immediately before the first top-level `exec `,
+# followed by a blank line. That is a POSITION, so migration can be positional
+# too — it never scans the file for lines that look like ours, which is what
+# made the heredoc question unavoidable before.
+#
+# Honest about the limit: text that reproduces one of those exact arrangements
+# directly above a top-level exec would also be removed. That is a narrow,
+# one-time path for upgrading real installations, not a general recogniser.
+# shellcheck disable=SC2016 # this is an awk program, not shell
+NS_MIGRATE_AWK='
+function is_old_line(l,   t) {
+  t = "codex   # notifysound"
+  return (length(l) > length(t)) && (substr(l, length(l) - length(t) + 1) == t) &&
+         (index(l, "notifysound-play.sh") > 0) && (substr(l, 1, 7) == "  bash ")
+}
+function is_old_source(l,   n) {
+  n = length(l)
+  return (substr(l, 1, length(pre)) == pre) && (n >= length(pre) + length(suf)) &&
+         (substr(l, n - length(suf) + 1) == suf)
+}
+BEGIN { pre = ENVIRON["NS_AWK_PRE"]; suf = ENVIRON["NS_AWK_SUF"] }
+{ line[NR] = $0 }
+END {
+  anchor = 0
+  for (i = 1; i <= NR; i++) if (substr(line[i], 1, 5) == "exec ") { anchor = i; break }
+  for (i = 1; i <= NR; i++) drop[i] = 0
+  if (anchor > 0) {
+    # 2.1.x: <our line> <blank> exec
+    if (anchor >= 3 && line[anchor - 1] == "" && is_old_source(line[anchor - 2])) {
+      drop[anchor - 1] = 1; drop[anchor - 2] = 1
     }
-    BEGIN { pre = ENVIRON["NS_AWK_PRE"]; suf = ENVIRON["NS_AWK_SUF"]; base = ENVIRON["NS_AWK_BASE"] }
-    index($0, base) > 0 && !ours($0) { count++ }
-    END { print count + 0 }
-  ' "$notify" 2>/dev/null)"
-  printf '%s\n' "${n:-0}"
+    # 2.0.x: if / bash …/ fi / <blank> / exec
+    else if (anchor >= 5 && line[anchor - 1] == "" && line[anchor - 2] == "fi" &&
+             is_old_line(line[anchor - 3]) &&
+             line[anchor - 4] == "if [[ \"$JSON\" == *\"agent-turn-complete\"* ]]; then") {
+      for (j = 1; j <= 4; j++) drop[anchor - j] = 1
+    }
+  }
+  for (i = 1; i <= NR; i++) if (!drop[i]) print line[i]
+}
+'
+
+ns_codex_migrate() {
+  local notify tmp
+  notify="$(ns_real_file "$1")"
+  tmp="$(mktemp)"
+  if ! { NS_AWK_PRE="$NS_CODEX_PREFIX" NS_AWK_SUF="$NS_CODEX_SUFFIX" \
+         awk "$NS_MIGRATE_AWK" "$notify" > "$tmp" && mv "$tmp" "$notify"; }; then
+    rm -f "$tmp"
+    return 2
+  fi
+  chmod +x "$notify"
+  return 0
 }
 
-# Inserts the single source line ahead of the exec handoff. The line is passed
-# through ENVIRON for the same escape-processing reason as above.
+# Inserts the single source line at the anchor. No `exec` is required any more:
+# the hook reads its payload from "$@", so it no longer has to run after the
+# user's script has assigned anything.
 ns_install_codex() {
-  local notify tmp line
+  local notify tmp line n
   notify="$(ns_real_file "$1")"
   [ -f "$notify" ] || return 1
   ns_path_representable "$NS_CODEX_HOOK" || return 2
-  # Refuse BEFORE the backup, so a drifted line leaves the file byte-identical.
   [ "$(ns_codex_drift_count "$notify")" = "0" ] || return 2
   ns_backup "$notify" >/dev/null || return 2
   ns_codex_strip "$notify" || return 2
+  ns_codex_migrate "$notify" || return 2
 
   line="$(ns_codex_line)"
+  n="$(ns_codex_anchor "$notify")"
   tmp="$(mktemp)"
-  if ! { NS_AWK_LINE="$line" awk '
-    BEGIN { line = ENVIRON["NS_AWK_LINE"] }
-    /^exec / && !done { print line; print ""; done = 1 }
-    { print }
+  if ! { NS_AWK_LINE="$line" awk -v at="$n" '
+    BEGIN { line = ENVIRON["NS_AWK_LINE"]; if (at == 1) print line }
+    { print; if (NR == 1 && at == 2) print line }
   ' "$notify" > "$tmp" && mv "$tmp" "$notify"; }; then
     rm -f "$tmp"
     return 2
   fi
   chmod +x "$notify"
-  # awk finishing with rc 0 does not guarantee the insertion happened: with no
-  # `^exec ` line to anchor on, awk quietly copies the file and never sets done.
-  local n
-  n="$(ns_codex_signed_count "$notify")"
-  [ "${n:-0}" = "1" ] || return 2
+  # Verify the OUTCOME: the anchor line is ours.
+  [ "$(ns_codex_signed_count "$notify")" = "1" ] || return 2
   return 0
 }
 
@@ -370,13 +378,10 @@ ns_uninstall_codex() {
   local notify
   notify="$(ns_real_file "$1")"
   [ -f "$notify" ] || return 1
-  # The same drift check install does. Without it, a line our recogniser can no
-  # longer see (a CRLF round trip is enough — awk leaves the \r and the suffix
-  # match fails) produced rc 0 and a count of 0 while the line was still in the
-  # file and still executing: a reported success for work that did not happen.
   [ "$(ns_codex_drift_count "$notify")" = "0" ] || return 2
   ns_backup "$notify" >/dev/null || return 2
   ns_codex_strip "$notify" || return 2
+  ns_codex_migrate "$notify" || return 2
   [ "$(ns_codex_signed_count "$notify")" = "0" ] || return 2
   return 0
 }

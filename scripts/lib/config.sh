@@ -119,6 +119,49 @@ ns_delete_managed_sound() {
   return 0
 }
 
+# The sound a fresh install starts on. A macOS system sound is the familiar
+# choice for a notification, but it is referenced in place and a future macOS
+# could drop it — so this is a preference, not a guarantee, and
+# ns_pick_default_sound falls back if the file is not there.
+NS_PREFERRED_DEFAULT="glass"
+
+# Choose a current sound when none is set, so that installing produces something
+# audible rather than silence until the user runs `use`. Only ever fills a null:
+# an existing selection is never touched.
+#
+# The pick is verified against the filesystem instead of trusting the manifest.
+# Naming a default whose file happens to be absent would reproduce exactly the
+# problem this exists to solve — installed, configured, and still silent.
+ns_pick_default_sound() {
+  local current name path
+  current="$(ns_get '.sound')" || return 2
+  [ "$current" = "null" ] || [ -z "$current" ] || return 0
+
+  # shellcheck disable=SC2016 # $n is a jq --arg variable; bash must not expand it
+  path="$(ns_get '.sounds[$n] // empty' n "$NS_PREFERRED_DEFAULT")" || return 2
+  if [ -n "$path" ] && [ -f "$path" ]; then
+    # shellcheck disable=SC2016 # $n is a jq --arg variable
+    ns_set '.sound = $n' n "$NS_PREFERRED_DEFAULT" || return 2
+    printf '%s\n' "$NS_PREFERRED_DEFAULT"
+    return 0
+  fi
+
+  while IFS= read -r name; do
+    [ -n "$name" ] || continue
+    # shellcheck disable=SC2016 # $n is a jq --arg variable
+    path="$(ns_get '.sounds[$n] // empty' n "$name")" || continue
+    [ -n "$path" ] && [ -f "$path" ] || continue
+    # shellcheck disable=SC2016 # $n is a jq --arg variable
+    ns_set '.sound = $n' n "$name" || return 2
+    printf '%s\n' "$name"
+    return 0
+  done <<< "$(ns_get '.sounds | keys[]?' 2>/dev/null)"
+
+  # Nothing registered, or nothing that resolves. Leaving .sound null is the
+  # honest outcome; the player already treats it as "stay quiet".
+  return 0
+}
+
 ns_home() {
   printf '%s\n' "${NOTIFYSOUND_HOME:-$HOME/.claude/notifysound}"
 }
