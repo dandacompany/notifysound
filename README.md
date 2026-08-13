@@ -107,6 +107,7 @@ notifysound status          # what is on, what is installed, what is linked
 | `remove <name>`                       | unregister a user sound and delete its file                |
 | `test [name]`                         | play immediately, ignoring the enabled switch              |
 | `install` / `uninstall`               | write or remove the host hooks                             |
+| `migrate`                             | move an installation from a pre-2.2 layout (opt-in)        |
 
 Per-host state is an override, not a second switch: `null` means "follow the
 global one". `off` then `reset --host codex` puts Codex back under global
@@ -183,6 +184,27 @@ Two consequences worth knowing:
 
 Every edit to `settings.json` or `notify.sh` writes a timestamped backup
 alongside the original (`<file>.notifysound-bak-<timestamp>-XXXXXX`).
+
+## Upgrading from before 2.2
+
+`install` and `uninstall` never rewrite your `notify.sh` by position — they add
+or remove exactly one line, at one place, and refuse to do anything else. So an
+installation left by an earlier version, which sat elsewhere in the file, is
+something they will not move for you. They stop and say so.
+
+`notifysound migrate` does that move, and it is a separate command precisely
+because it is the only code here that has to decide where things sit in your
+script. Deciding that exactly requires a shell parser; deciding it approximately
+is how earlier versions damaged heredoc contents. So it is opt-in, it writes a
+timestamped backup first, and you run it knowing what it does:
+
+```bash
+notifysound migrate     # moves the old line, and says what it found
+notifysound install     # then install normally
+```
+
+If you would rather not run it, delete the notifysound line or block from
+`~/.codex/hooks/notify.sh` by hand and run `notifysound install`.
 
 ## Credits
 

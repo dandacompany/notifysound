@@ -1,7 +1,7 @@
 ---
 name: notifysound
 description: Use when turning the agent turn-completion sound on or off, or registering and switching notification sounds, for Claude Code and Codex CLI. Responds to requests like "mute the notification sound", "turn the sound back on", "silence codex only", "change the notification sound", "register this file as the sound", "what sound is set", and their Korean equivalents (알림음 꺼줘, 알림음 켜줘, 코덱스만 조용히, 알림음 바꿔줘, 새 알림음 등록, 지금 알림음 뭐야).
-argument-hint: "[on|off|reset|status|list|add|use|remove|test|install|uninstall] [--host claude|codex] [name] [file]"
+argument-hint: "[on|off|reset|status|list|add|use|remove|test|install|uninstall|migrate] [--host claude|codex] [name] [file]"
 ---
 
 # notifysound
@@ -38,6 +38,7 @@ registers the 12 built-in sounds.
 | "delete the <name> sound" / "알림음 <이름> 지워줘"                | `notifysound remove <name>`      |
 | "reinstall the hooks" / "알림음 훅 다시 설치해줘"                 | `notifysound install`            |
 | "remove notifysound" / "알림음 기능 제거해줘"                     | `notifysound uninstall`          |
+| "upgraded but the codex hook is missing" / "업그레이드했는데 코덱스 훅이 안 붙어" | `notifysound migrate` then `notifysound install` |
 
 ## Rules
 
@@ -57,6 +58,11 @@ registers the 12 built-in sounds.
   a dangling symlink (`ok` / `broken`), and whether each harness skill directory
   is linked. It is read-only. For any "I hear no sound" request, run
   `notifysound status` first.
+- If `install` reports that the Codex hook still holds a pre-2.2 layout, do NOT
+  edit `notify.sh` by hand to work around it. Tell the user what `migrate` does
+  — it is the only command that decides where things sit in their script, it
+  backs the file up first, and it is opt-in for that reason — and let them
+  decide. Then run `notifysound install`.
 - Never edit `~/.claude/settings.json`, `~/.codex/hooks/notify.sh`, or
   `~/.claude/notifysound/config.json` by hand. Use these CLI commands only.
 - **`uninstall` does not restore a previously existing sound hook.** It strips
@@ -77,11 +83,14 @@ registers the 12 built-in sounds.
   It exits 0 on every path and writes nothing to stdout, so a sound problem can
   never break an agent turn.
 - CLI: `~/.local/bin/notifysound`
-- Hooks: the `Stop` array in Claude Code's `settings.json`, and the
-  `agent-turn-complete` branch in `~/.codex/hooks/notify.sh`. Both carry the
-  `# notifysound` signature comment.
+- Hooks: one entry in the `Stop` array of Claude Code's `settings.json`, and
+  ONE line in `~/.codex/hooks/notify.sh` — immediately after the shebang —
+  which sources our own `codex-hook.sh`. Both carry the `# notifysound`
+  signature. All of the Codex-side logic lives in our file, not in theirs, and
+  install/uninstall only ever touch that single line at that single position.
 
 macOS only (depends on `afplay`). Supported extensions: `mp3 wav aiff m4a aac`.
 Sound names accept `[A-Za-z0-9_-]` only.
 
-Exit codes: `0` success, `1` user error, `2` environment error.
+Exit codes: `0` success, `1` user error, `2` environment error, `3` the Codex
+hook is in a pre-2.2 layout and `notifysound migrate` is needed first.

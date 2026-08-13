@@ -50,6 +50,7 @@ Sounds
 Install
   install                        install Claude/Codex hooks and register built-ins (idempotent)
   uninstall                      remove the hooks
+  migrate                        move an installation from an older layout (opt-in)
 EOF
 }
 
@@ -380,11 +381,52 @@ cmd_install() {
     printf 'skipped (file not found): %s\n' "$NS_CLAUDE_SETTINGS"
   fi
   if [ -f "$NS_CODEX_NOTIFY" ]; then
-    if ns_install_codex "$NS_CODEX_NOTIFY"; then
-      printf 'Codex CLI hook installed: %s\n' "$NS_CODEX_NOTIFY"
+    ns_install_codex "$NS_CODEX_NOTIFY"
+    case $? in
+      0) printf 'Codex CLI hook installed: %s\n' "$NS_CODEX_NOTIFY" ;;
+      3) report_needs_migrate "$NS_CODEX_NOTIFY"; failed=1 ;;
+      *) printf 'Codex CLI hook install failed: %s\n' "$NS_CODEX_NOTIFY" >&2; failed=1 ;;
+    esac
+  else
+    printf 'skipped (file not found): %s\n' "$NS_CODEX_NOTIFY"
+  fi
+  [ "$failed" -eq 0 ] || exit 2
+}
+
+# rc 3 from the codex functions means an installation from an older layout is
+# sitting somewhere in the file. We refuse rather than add a second hook beside
+# one we cannot see, and we do not rewrite their file uninvited.
+report_needs_migrate() {
+  printf 'Codex CLI hook not changed: %s\n' "$1" >&2
+  printf 'It still holds a notifysound hook in the pre-2.2 layout.\n' >&2
+  printf "Run: notifysound migrate   (then run install again)\n" >&2
+  printf '(migrate is the only command that edits your script by position; it is\n' >&2
+  printf ' opt-in for that reason. Back the file up first if you want to be sure.)\n' >&2
+}
+
+# The one command that reasons about where things sit in the user's file.
+cmd_migrate() {
+  local failed=0 before after
+  if [ -f "$NS_CODEX_NOTIFY" ]; then
+    before="$(ns_codex_legacy_present "$NS_CODEX_NOTIFY")"
+    if [ "$before" = "0" ]; then
+      printf 'nothing to migrate: %s\n' "$NS_CODEX_NOTIFY"
     else
-      printf 'Codex CLI hook install failed: %s\n' "$NS_CODEX_NOTIFY" >&2
-      failed=1
+      ns_backup "$NS_CODEX_NOTIFY" >/dev/null || { printf 'could not back up %s\n' "$NS_CODEX_NOTIFY" >&2; exit 2; }
+      if ns_codex_migrate "$NS_CODEX_NOTIFY"; then
+        after="$(ns_codex_legacy_present "$NS_CODEX_NOTIFY")"
+        if [ "$after" = "0" ]; then
+          printf 'migrated: %s\n' "$NS_CODEX_NOTIFY"
+          printf 'now run: notifysound install\n'
+        else
+          printf 'migration did not clear the old layout in %s\n' "$NS_CODEX_NOTIFY" >&2
+          printf 'Edit it by hand: remove the notifysound line or block, then run install.\n' >&2
+          failed=1
+        fi
+      else
+        printf 'migration failed: %s\n' "$NS_CODEX_NOTIFY" >&2
+        failed=1
+      fi
     fi
   else
     printf 'skipped (file not found): %s\n' "$NS_CODEX_NOTIFY"
@@ -403,12 +445,12 @@ cmd_uninstall() {
     fi
   fi
   if [ -f "$NS_CODEX_NOTIFY" ]; then
-    if ns_uninstall_codex "$NS_CODEX_NOTIFY"; then
-      printf 'Codex CLI hook removed\n'
-    else
-      printf 'Codex CLI hook removal failed: %s\n' "$NS_CODEX_NOTIFY" >&2
-      failed=1
-    fi
+    ns_uninstall_codex "$NS_CODEX_NOTIFY"
+    case $? in
+      0) printf 'Codex CLI hook removed\n' ;;
+      3) report_needs_migrate "$NS_CODEX_NOTIFY"; failed=1 ;;
+      *) printf 'Codex CLI hook removal failed: %s\n' "$NS_CODEX_NOTIFY" >&2; failed=1 ;;
+    esac
   fi
   [ "$failed" -eq 0 ] || exit 2
   return 0
@@ -431,6 +473,7 @@ main() {
     test)   cmd_test "$@" ;;
     install)   cmd_install ;;
     uninstall) cmd_uninstall ;;
+    migrate)   cmd_migrate ;;
     help|-h|--help) usage ;;
     *)      printf 'unknown command: %s\n\n' "$sub" >&2; usage >&2; exit 1 ;;
   esac

@@ -100,6 +100,10 @@ prefix_is_ours() {
       && grep -qE '^version=[0-9]+\.[0-9]+\.[0-9]+$' "$NS_PREFIX/$NS_MARKER" 2>/dev/null \
       && grep -qxF "prefix=$real" "$NS_PREFIX/$NS_MARKER" 2>/dev/null \
       && return 0
+    # A marker that exists but does not verify is a refusal, not a reason to try
+    # a weaker test. Falling through to the legacy check meant the strong check
+    # FAILING still authorised a recursive delete.
+    return 1
   fi
   [ -f "$NS_PREFIX/VERSION" ] \
     && [ -f "$NS_PREFIX/scripts/notifysound.sh" ] \
@@ -245,6 +249,17 @@ do_links() {
 # paths belongs to somebody else and is left in place.
 uninstall() {
   local dir
+  # The gate comes FIRST — before running anything out of the prefix and before
+  # touching a single link. Running $NS_PREFIX/scripts/notifysound.sh and only
+  # then checking whether the prefix is ours meant pointing --uninstall at
+  # somebody else's directory executed their script: the delete gate was there,
+  # but arbitrary code ran past it on the way.
+  if [ -e "$NS_PREFIX" ] && ! prefix_is_ours; then
+    warn "$NS_PREFIX was not created by this installer."
+    warn "Refusing to run anything from it or to remove links that may not be ours."
+    warn "If notifysound really is installed elsewhere, set NOTIFYSOUND_PREFIX to that path."
+    exit 2
+  fi
   if [ -x "$NS_PREFIX/scripts/notifysound.sh" ]; then
     "$NS_PREFIX/scripts/notifysound.sh" uninstall || warn "hook removal reported a problem; continuing"
   fi
@@ -254,14 +269,6 @@ uninstall() {
   if [ -L "$NS_BIN_DIR/notifysound" ]; then rm -f "$NS_BIN_DIR/notifysound"; fi
   if [ -L "$NS_HOOK_DIR/notifysound-play.sh" ]; then rm -f "$NS_HOOK_DIR/notifysound-play.sh"; fi
   if [ -L "$NS_HOOK_DIR/codex-hook.sh" ]; then rm -f "$NS_HOOK_DIR/codex-hook.sh"; fi
-  # The same gate install uses. A failed hook cleanup must never authorise an
-  # rm -rf, and --uninstall pointed at somebody else's directory should refuse
-  # for exactly the reason installing into it does.
-  if [ -e "$NS_PREFIX" ] && ! prefix_is_ours; then
-    warn "$NS_PREFIX was not created by this installer — leaving it alone."
-    warn "Links and hooks were removed; delete that directory yourself if you want it gone."
-    return 0
-  fi
   rm -rf "${NS_PREFIX:?}"
   say "notifysound removed."
   say "Your sounds and settings were left in ${NOTIFYSOUND_HOME:-$HOME/.claude/notifysound}."

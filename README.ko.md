@@ -103,6 +103,7 @@ notifysound status          # 무엇이 켜져 있고, 설치돼 있고, 연결�
 | `remove <이름>`                       | 사용자 음원 등록 해제 및 파일 삭제                 |
 | `test [이름]`                         | enabled 스위치를 무시하고 즉시 재생                |
 | `install` / `uninstall`               | 호스트 훅 설치 또는 제거                           |
+| `migrate`                             | 2.2 이전 배치의 설치를 옮김 (opt-in)               |
 
 호스트별 상태는 두 번째 스위치가 아니라 **오버라이드**다. `null`이면 "전역을 따름"을
 뜻한다. `off` 후 `reset --host codex`는 Codex를 켜는 것이 아니라 전역 통제로
@@ -175,6 +176,25 @@ Codex 훅은 사용자의 `notify.sh`에서 source되며 `BASH_SOURCE`로 형제
 
 `settings.json`이나 `notify.sh`를 수정할 때마다 원본 옆에 타임스탬프 백업
 (`<파일>.notifysound-bak-<타임스탬프>-XXXXXX`)을 쓴다.
+
+## 2.2 이전 버전에서 올라올 때
+
+`install`과 `uninstall`은 `notify.sh`를 위치 기반으로 재작성하지 않는다 — 한 곳에
+한 줄을 넣거나 뺄 뿐, 그 외에는 아무것도 하지 않는다. 그래서 이전 버전이 파일의 다른
+위치에 남긴 설치는 **대신 옮겨주지 않는다.** 멈추고 알려줄 뿐이다.
+
+`notifysound migrate`가 그 이동을 한다. 별도 명령인 이유는, 이것이 사용자 스크립트
+안에서 무엇이 어디에 있는지 판단해야 하는 **유일한 코드**이기 때문이다. 정확히
+판단하려면 셸 파서가 필요하고, 근사로 판단하다가 이전 버전이 heredoc 내용을 훼손했다.
+그래서 opt-in이고, 타임스탬프 백업을 먼저 쓰며, 무엇을 하는지 알고 실행한다.
+
+```bash
+notifysound migrate     # 옛 줄을 옮기고 무엇을 찾았는지 알려준다
+notifysound install     # 그다음 평소대로 설치
+```
+
+실행하고 싶지 않다면 `~/.codex/hooks/notify.sh`에서 notifysound 줄이나 블록을 직접
+지우고 `notifysound install`을 돌리면 된다.
 
 ## 크레딧
 

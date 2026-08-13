@@ -37,9 +37,19 @@ fi
 # The payload comes from our own arguments. `source` inherits the caller's
 # positional parameters, so this works wherever the line sits — which is what
 # lets the installer put it at a fixed position (right after the shebang)
-# instead of having to run after the user's script assigns JSON. Reading $JSON
-# as well keeps an already-installed 2.1.x line working until it is migrated.
-case "$*${JSON:-}" in
+# instead of having to run after the user's script assigns JSON.
+#
+# The LAST argument only, matching how the host passes the event (and how
+# notify.sh itself reads it). Testing the joined arguments meant two innocent
+# arguments could concatenate into the marker, and a stale inherited JSON from
+# some outer shell could trigger playback on an unrelated event.
+if [ "$#" -gt 0 ]; then
+  ns_codex_hook_payload="${*: -1}"
+else
+  ns_codex_hook_payload="${JSON:-}"
+fi
+
+case "$ns_codex_hook_payload" in
   *agent-turn-complete*)
     if [ -x "$ns_codex_hook_play" ] || [ -r "$ns_codex_hook_play" ]; then
       bash "$ns_codex_hook_play" codex >/dev/null 2>&1
@@ -47,4 +57,4 @@ case "$*${JSON:-}" in
     ;;
 esac
 
-unset ns_codex_hook_self ns_codex_hook_target ns_codex_hook_hops ns_codex_hook_play
+unset ns_codex_hook_self ns_codex_hook_target ns_codex_hook_hops ns_codex_hook_play ns_codex_hook_payload

@@ -274,6 +274,38 @@ ns_codex_drift_count() {
   printf '0\n'
 }
 
+# Read-only. Counts things that look like an installation from an older layout
+# anywhere in the file, so the ordinary paths can REFUSE instead of silently
+# adding a second hook beside one they cannot see.
+#
+# The distinction that matters: reading the whole file to decide whether to stop
+# is safe — the worst outcome is a false refusal. Reading the whole file to
+# decide what to DELETE is what destroyed heredoc payloads twice. Nothing here
+# ever writes.
+ns_codex_legacy_present() {
+  local notify n
+  notify="$(ns_real_file "$1")"
+  [ -f "$notify" ] || { printf '0\n'; return 0; }
+  n="$(NS_AWK_PRE="$NS_CODEX_PREFIX" NS_AWK_SUF="$NS_CODEX_SUFFIX" \
+       NS_AWK_ANCHOR="$(ns_codex_anchor "$notify")" awk '
+    function is_old_line(l,   t) {
+      t = "codex   # notifysound"
+      return (length(l) > length(t)) && (substr(l, length(l) - length(t) + 1) == t) &&
+             (index(l, "notifysound-play.sh") > 0) && (substr(l, 1, 7) == "  bash ")
+    }
+    function is_old_source(l,   n) {
+      n = length(l)
+      return (substr(l, 1, length(pre)) == pre) && (n >= length(pre) + length(suf)) &&
+             (substr(l, n - length(suf) + 1) == suf)
+    }
+    BEGIN { pre = ENVIRON["NS_AWK_PRE"]; suf = ENVIRON["NS_AWK_SUF"]
+            anchor = ENVIRON["NS_AWK_ANCHOR"] + 0 }
+    NR != anchor && (is_old_source($0) || is_old_line($0)) { c++ }
+    END { print c + 0 }
+  ' "$notify" 2>/dev/null)"
+  printf '%s\n' "${n:-0}"
+}
+
 ns_codex_strip() {
   local notify tmp n
   notify="$(ns_real_file "$1")"
@@ -288,16 +320,22 @@ ns_codex_strip() {
   return 0
 }
 
-# --- one-time migration from earlier layouts ------------------------------
+# --- migration from earlier layouts: NOT on the ordinary path -------------
+#
+# This is the only code here that reasons about where things sit in the user's
+# file, and it runs only from `notifysound migrate`. install and uninstall never
+# call it. That separation is the point: 2.2.0 claimed to have removed the
+# parser and then called this from both of them unconditionally, so the parser
+# ran on every operation. A comment saying "one-time" is not a control flow.
 #
 # 2.0.x and 2.1.x both inserted immediately before the first top-level `exec `,
-# followed by a blank line. That is a POSITION, so migration can be positional
-# too — it never scans the file for lines that look like ours, which is what
-# made the heredoc question unavoidable before.
+# followed by a blank line, so the match is positional rather than a search.
 #
-# Honest about the limit: text that reproduces one of those exact arrangements
-# directly above a top-level exec would also be removed. That is a narrow,
-# one-time path for upgrading real installations, not a general recogniser.
+# The limit, stated plainly: `exec ` at column 0 inside a heredoc body is
+# indistinguishable from a command without parsing the shell, so a payload that
+# reproduces one of those exact arrangements above such a line would be edited.
+# That is why this is opt-in and why the ordinary paths refuse and point here
+# instead of doing it for you.
 # shellcheck disable=SC2016 # this is an awk program, not shell
 NS_MIGRATE_AWK='
 function is_old_line(l,   t) {
@@ -354,9 +392,12 @@ ns_install_codex() {
   [ -f "$notify" ] || return 1
   ns_path_representable "$NS_CODEX_HOOK" || return 2
   [ "$(ns_codex_drift_count "$notify")" = "0" ] || return 2
+  # rc 3 means "an older layout is in there" — the caller turns that into an
+  # instruction to run `notifysound migrate`, which is the ONLY place the
+  # positional parser lives now.
+  [ "$(ns_codex_legacy_present "$notify")" = "0" ] || return 3
   ns_backup "$notify" >/dev/null || return 2
   ns_codex_strip "$notify" || return 2
-  ns_codex_migrate "$notify" || return 2
 
   line="$(ns_codex_line)"
   n="$(ns_codex_anchor "$notify")"
@@ -379,9 +420,9 @@ ns_uninstall_codex() {
   notify="$(ns_real_file "$1")"
   [ -f "$notify" ] || return 1
   [ "$(ns_codex_drift_count "$notify")" = "0" ] || return 2
+  [ "$(ns_codex_legacy_present "$notify")" = "0" ] || return 3
   ns_backup "$notify" >/dev/null || return 2
   ns_codex_strip "$notify" || return 2
-  ns_codex_migrate "$notify" || return 2
   [ "$(ns_codex_signed_count "$notify")" = "0" ] || return 2
   return 0
 }
